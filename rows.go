@@ -5,22 +5,22 @@ import (
 )
 
 type Rows struct {
-	Lists []*sqlm.Row
+	Lists []*Row
 	idx   int
 }
 
-func NewSqlxRows() *sqlm.Rows {
+func NewSqlxRows() *Rows {
 	return &Rows{
-		Lists: []*sqlm.Row{},
+		Lists: []*Row{},
 		idx:   -1,
 	}
 }
 
-func (rs *sqlm.Rows) Length() int {
+func (rs *Rows) Length() int {
 	return len(rs.Lists)
 }
 
-func (rs *sqlm.Rows) SetIndex(pos int) error {
+func (rs *Rows) SetIndex(pos int) error {
 	if pos < 0 {
 		pos = -1
 	}
@@ -31,12 +31,12 @@ func (rs *sqlm.Rows) SetIndex(pos int) error {
 	return nil
 }
 
-func (rs *sqlm.Rows) ResetIndex() error {
+func (rs *Rows) ResetIndex() error {
 	rs.idx = -1
 	return nil
 }
 
-func (rs *sqlm.Rows) Index(pos int) *sqlm.Row {
+func (rs *Rows) Index(pos int) *Row {
 	if pos < 0 {
 		return nil
 	}
@@ -46,7 +46,7 @@ func (rs *sqlm.Rows) Index(pos int) *sqlm.Row {
 	return rs.Lists[pos]
 }
 
-func (rs *sqlm.Rows) Next() *sqlm.Row {
+func (rs *Rows) Next() *Row {
 	pos := rs.idx + 1
 	if pos >= len(rs.Lists) {
 		return nil
@@ -55,19 +55,19 @@ func (rs *sqlm.Rows) Next() *sqlm.Row {
 	return rs.Lists[pos]
 }
 
-func (rs *sqlm.Rows) Row() *sqlm.Row {
+func (rs *Rows) Row() *Row {
 	if rs.idx >= len(rs.Lists) {
 		return nil
 	}
 	return rs.Lists[rs.idx]
 }
 
-func (rs *sqlm.Rows) Append(row sqlm.Row) []*sqlm.Row {
+func (rs *Rows) Append(row Row) []*Row {
 	rs.Lists = append(rs.Lists, &row)
 	return rs.Lists
 }
 
-func (rs *sqlm.Rows) Map(call func(res *sqlm.Row, idx int) interface{}) []interface{} {
+func (rs *Rows) Map(call func(res *Row, idx int) interface{}) []interface{} {
 	var copy []interface{} = []interface{}{}
 	for k, v := range rs.Lists {
 		copy = append(copy, call(v, k))
@@ -75,7 +75,7 @@ func (rs *sqlm.Rows) Map(call func(res *sqlm.Row, idx int) interface{}) []interf
 	return copy
 }
 
-func (rs *sqlm.Rows) getIndex(key string) int {
+func (rs *Rows) getIndex(key string) int {
 	r := rs.Row()
 	for i := 0; i < r.ColumnLen; i++ {
 		if key == r.ColumnName[i] {
@@ -84,7 +84,7 @@ func (rs *sqlm.Rows) getIndex(key string) int {
 	}
 	return -1
 }
-func (rs *sqlm.Rows) Get(key string) sqlm.Column {
+func (rs *Rows) Get(key string) Column {
 	r := rs.Row()
 	if r == nil {
 		return nil
@@ -92,7 +92,7 @@ func (rs *sqlm.Rows) Get(key string) sqlm.Column {
 	return r.Get(key)
 }
 
-func (r *sqlm.Rows) Json() string {
+func (r *Rows) Json() string {
 	s := []map[string]interface{}{}
 	for _, row := range r.Lists {
 		s = append(s, row.ToMap())
@@ -101,18 +101,18 @@ func (r *sqlm.Rows) Json() string {
 	mString := string(mjson)
 	return mString
 }
-func (r *sqlm.Rows) ToString() string {
+func (r *Rows) ToString() string {
 	return r.Json()
 }
-func (r *sqlm.Rows) Type() string {
+func (r *Rows) Type() string {
 	return "array"
 }
 
-func (r *sqlm.Rows) ToMap() map[string]interface{} {
+func (r *Rows) ToMap() map[string]interface{} {
 	return r.Row().ToMap()
 }
 
-func (r *sqlm.Rows) ToArray() []map[string]interface{} {
+func (r *Rows) ToArray() []map[string]interface{} {
 	s := []map[string]interface{}{}
 	for _, row := range r.Lists {
 		s = append(s, row.ToMap())

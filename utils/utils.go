@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
-
-	"github.com/w6xian/sqlm"
 )
 
 func RandBytes(size int) []byte {
@@ -111,14 +109,4 @@ func GetString(value interface{}) string {
 		key = string(newValue)
 	}
 	return key
-}
-
-func Rows2MapRow(rows *sqlm.Rows, col string) map[string]*sqlm.Row {
-	rst := make(map[string]*sqlm.Row)
-	for rows.Next() != nil {
-		key := rows.Get(col).String()
-		rst[key] = rows.Row()
-	}
-	rows.ResetIndex()
-	return rst
 }
