@@ -11,51 +11,6 @@ import (
 
 var sqlx atomic.Value
 
-/**
-con, err := store.NewMysql(sqlm.Conf{
-	Database:      "cloud",
-	Host:          "127.0.0.1",
-	Port:          3306,
-	Maxconnetions: 10,
-	Protocol:      "mysql",
-	Username:      "root",
-	Password:      "1Qazxsw2",
-	Pretable:      "mi_",
-	Charset:       "utf8mb4",
-})
-if err != nil {
-	fmt.Println("not conne")
-}
-// db := sqlm.Slaver(1)
-
-	// // return nil
-	// // 操作表
-	// row, err := db.Table("mall_so").Where("id=%d", 1).Query()
-	// fmt.Printf("%v", err)
-	// if err != nil {
-	// 	fmt.Println(err.Error())
-	// 	return err
-	// } else {
-	// 	fmt.Println(row.Get("com_name").String())
-	// }
-	// _, err = db.Action(func(tx *sqlm.Tx, args ...interface{}) (bool, error) {
-	// 	rows, err := tx.Table("mall_so").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
-	// 	if err != nil {
-	// 		fmt.Println(err.Error())
-	// 		return false, err
-	// 	}
-	// 	for rows.Next() != nil {
-	// 		fmt.Println(rows.Get("com_name").String())
-	// 	}
-	// 	pos, err := tx.Table("cloud_mark").Insert(sqlm.KeyValue{
-	// 		"com_id":  137,
-	// 		"prd_pos": 1,
-	// 	})
-	// 	fmt.Printf("%v,$v", pos, err)
-	// 	return true, nil
-	// }, "a")
-*/
-
 type ActionExec func(tx *Tx, args ...interface{}) (int64, error)
 
 type TxConn interface {

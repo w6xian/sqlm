@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	sqlsvr := sqlm.Server{
+	opt := sqlm.NewOptionsWithServer(sqlm.Server{
 		Database: "cloud",
 		Host:     "127.0.0.1",
 		Port:     3306,
@@ -17,18 +17,18 @@ func main() {
 		Password: "1Qazxsw2",
 		Pretable: "mi_",
 		Charset:  "utf8mb4",
-	}
-	sqlc := sqlm.NewOptionsWithServer(sqlsvr)
+	})
 
 	// 使用mysql
-	con, err := store.NewMysql(&sqlc.Server)
+	con, err := store.NewMysql(&opt.Server)
 	if err != nil {
 		fmt.Println("not conne")
 	}
 
-	sqlm.New(sqlc, con)
+	sqlm.New(opt, con)
 
 	db := sqlm.Master()
+	defer db.Close()
 
 	// return nil
 	// 操作表
@@ -40,7 +40,8 @@ func main() {
 		fmt.Println(row.Get("com_name").String())
 	}
 
-	code, err := db.Action(func(tx *sqlm.Tx, args ...interface{}) (int64, error) {
+	code, _ := db.Action(func(tx *sqlm.Tx, args ...interface{}) (int64, error) {
+
 		rows, err := tx.Table("mall_so").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
 		if err != nil {
 			fmt.Println(err.Error())
@@ -48,12 +49,10 @@ func main() {
 		for rows.Next() != nil {
 			fmt.Println(rows.Get("com_name").String())
 		}
-		pos, err := tx.Table("cloud_mark").Insert(sqlm.KeyValue{
+		return tx.Table("cloud_mark").Insert(sqlm.KeyValue{
 			"com_id":  161,
 			"prd_pos": 1,
 		})
-		fmt.Printf("%v,$v", pos, err)
-		return 1, nil
 	})
 	fmt.Println(code)
 }
