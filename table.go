@@ -143,7 +143,6 @@ func (t *Table) Insert(data map[string]interface{}) (int64, error) {
 	}
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", t.table_prefix(), strings.Join(columns, ","), strings.Join(t.buildSqlQ(len(values)), ","))
 	t.logf(loog.DEBUG, sql)
-	fmt.Println(sql)
 	stmt, err := t.dbConn.Prepare(sql)
 	if err != nil {
 		return 0, err
@@ -661,7 +660,6 @@ func (t *Table) Execute() (int64, error) {
 	if len(sql) <= 0 {
 		panic("sql Execute 中需要操作")
 	}
-	fmt.Println(sql)
 	stmt, err := t.dbConn.Prepare(sql)
 	if err != nil {
 		return 0, err
