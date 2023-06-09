@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/json"
-	"fmt"
 	"math/rand"
 	"strconv"
 )
@@ -45,7 +44,7 @@ func GetInt64(val interface{}) int64 {
 	case float64:
 		return int64(value)
 	default:
-		fmt.Println("GetInt64=", value)
+		return 0
 	}
 	return 0
 }

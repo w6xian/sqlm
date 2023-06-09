@@ -33,7 +33,7 @@ func main() {
 	// return nil
 	// 操作表
 	row, err := db.Table("mall_so").Where("id=%d", 1).Query()
-	fmt.Printf("%v", err)
+
 	if err != nil {
 		fmt.Println(err.Error())
 	} else {
