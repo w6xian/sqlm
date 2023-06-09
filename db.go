@@ -73,7 +73,7 @@ func Slaver(slaver ...int) *Db {
 	cf := getSqlx()
 	dbcon.conn = cf.dbcon
 	dbcon.Logger = cf.Logger
-	dbcon.server = cf.getOpts().Slaves[pos]
+	dbcon.server = cf.getOpts().Slavers[pos]
 	dbcon.conn.Connect()
 	return dbcon
 }

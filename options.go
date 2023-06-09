@@ -1,26 +1,12 @@
 package sqlm
 
 import (
-	"sync/atomic"
-
 	"github.com/w6xian/sqlm/loog"
 )
 
-var opts atomic.Value
-
 func NewOptions() *Options {
 	opts := &Options{}
-	opt := Server{
-		Database:     "",
-		Host:         "",
-		Port:         0,
-		Maxconnetion: 10,
-		Protocol:     "mysql",
-		Username:     "root",
-		Password:     "root",
-		Pretable:     "",
-		Charset:      "utf8mb4",
-	}
+	opt := Server{}
 	opts.Server = opt
 	return opts
 }
@@ -32,20 +18,20 @@ func NewOptionsWithServer(svr Server) *Options {
 }
 
 type Server struct {
-	Protocol     string `yaml:"protocol"`
-	Database     string `yaml:"database"`
-	Host         string `yaml:"host"`
-	Port         int    `yaml:"port"`
-	Username     string `yaml:"user"`
-	Password     string `yaml:"password"`
-	Charset      string `yaml:"charset"`
-	Pretable     string `yaml:"pretable"`
-	Maxconnetion int    `yaml:"maxconnection"`
+	Protocol     string `toml:"protocol"`
+	Database     string `toml:"database"`
+	Host         string `toml:"host"`
+	Port         int    `toml:"port"`
+	Username     string `toml:"user"`
+	Password     string `toml:"password"`
+	Charset      string `toml:"charset"`
+	Pretable     string `toml:"pretable"`
+	Maxconnetion int    `toml:"maxconnection"`
 }
 
 type Options struct {
-	Server   Server
-	Slaves   []Server
+	Server   Server   `json:"server"`
+	Slavers  []Server `json:"slavers"`
 	Logger   loog.Logger
 	LogLevel loog.LogLevel
 	//
@@ -53,5 +39,5 @@ type Options struct {
 }
 
 func (c *Options) AddSlave(svr Server) {
-	c.Slaves = append(c.Slaves, svr)
+	c.Slavers = append(c.Slavers, svr)
 }
