@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/w6xian/sqlm/loog"
 	"github.com/w6xian/sqlm/utils"
 )
 
@@ -29,6 +28,7 @@ type Table struct {
 	dbConn   TxConn
 	pPre     string
 	db       *Db
+	log      StdLog
 }
 
 func NewTable(tle string) *Table {
@@ -52,14 +52,14 @@ func (t *Table) Use(db *Db) *Table {
 	t.dbConn = db.conn
 	return t
 }
+func (t *Table) UseLog(log StdLog) *Table {
+	t.log = log
+	return t
+}
 
 func (t *Table) UseConn(conn TxConn) *Table {
 	t.dbConn = conn
 	return t
-}
-
-func (t *Table) logf(level loog.LogLevel, f string, args ...interface{}) {
-	t.db.logf(level, f, args...)
 }
 
 func (t *Table) From(tle string) *Table {
@@ -142,7 +142,7 @@ func (t *Table) Insert(data map[string]interface{}) (int64, error) {
 		columns[k] = "`" + strings.Trim(v, "`") + "`"
 	}
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", t.table_prefix(), strings.Join(columns, ","), strings.Join(t.buildSqlQ(len(values)), ","))
-	t.logf(loog.DEBUG, sql)
+
 	stmt, err := t.dbConn.Prepare(sql)
 	if err != nil {
 		return 0, err
@@ -186,7 +186,7 @@ func (t *Table) Inserts(columns []string, data [][]interface{}) (int64, error) {
 	}
 
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s", t.table_prefix(), strings.Join(columns, ","), strings.Join(qarr, ","))
-	t.logf(loog.DEBUG, sql)
+
 	stmt, err := t.dbConn.Prepare(sql)
 	if err != nil {
 		return 0, err
@@ -471,7 +471,6 @@ func (t *Table) QueryMulti() (*Rows, error) {
 			}
 			return _rows, nil
 		}
-		t.logf(loog.INFO, err.Error())
 	}
 	return nil, err
 }
@@ -557,8 +556,7 @@ func (t *Table) getSql() string {
 	if len(t.pLock) > 0 {
 		sql = sql + t.pLock
 	}
-	println(sql)
-	t.logf(loog.DEBUG, sql)
+	t.log.Debug(sql)
 	return sql
 }
 

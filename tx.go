@@ -11,5 +11,5 @@ func (tx *Tx) Use(dbc TxConn) {
 
 func (tx *Tx) Table(tbl string) *Table {
 	svr := tx.db.server
-	return Tb(tbl).Use(tx.db).UseConn(tx.connection).PreTable(svr.Pretable)
+	return Tb(tbl).UseLog(tx.db.log).Use(tx.db).UseConn(tx.connection).PreTable(svr.Pretable)
 }

@@ -15,10 +15,11 @@ type Mysql struct {
 	conf        *sqlm.Server
 	connection  *sql.DB
 	isConnected bool
+	log         sqlm.StdLog
 }
 
-func NewMysql(conf *sqlm.Server) (*Mysql, error) {
-	return &Mysql{conf: conf, isConnected: false}, nil
+func NewMysql(opt *sqlm.Options) (*Mysql, error) {
+	return &Mysql{conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
 
 }
 

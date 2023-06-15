@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
-
-	"github.com/w6xian/sqlm/loog"
 )
 
 var sqlx atomic.Value
@@ -32,8 +30,8 @@ type DbConn interface {
 type Sqlm struct {
 	opts      atomic.Value
 	dbcon     DbConn
-	Logger    loog.Logger
 	LogPrefix string
+	log       StdLog
 }
 
 func (d *Sqlm) Use(dbName ...string) (*Db, error) {
@@ -49,6 +47,7 @@ func (d *Sqlm) Use(dbName ...string) (*Db, error) {
 	}
 	db := &Db{}
 	db.conn = con
+	db.log = cfg.log
 	err = con.Connect()
 	if err != nil {
 		return nil, err
@@ -72,8 +71,8 @@ func Slaver(slaver ...int) *Db {
 	dbcon := &Db{}
 	cf := getSqlx()
 	dbcon.conn = cf.dbcon
-	dbcon.Logger = cf.Logger
 	dbcon.server = cf.getOpts().Slavers[pos]
+	dbcon.log = cf.getOpts().log
 	dbcon.conn.Connect()
 	return dbcon
 }
@@ -82,20 +81,19 @@ func Master() *Db {
 	dbcon := &Db{}
 	cf := getSqlx()
 	dbcon.conn = cf.dbcon
-	dbcon.Logger = cf.Logger
 	dbcon.server = cf.getOpts().Server
+	dbcon.log = cf.getOpts().log
 	err := dbcon.conn.Connect()
-	if err == nil {
-		fmt.Println(err)
+	if err != nil {
+		cf.getOpts().log.Error(err.Error())
 	}
 	return dbcon
 }
 
 type Db struct {
-	Logger   loog.Logger
-	conn     DbConn
-	server   Server
-	LogLevel loog.LogLevel
+	conn   DbConn
+	server Server
+	log    StdLog
 }
 
 func getSqlx() *Sqlm {
@@ -110,6 +108,7 @@ func swapSqlx(sx *Sqlm) atomic.Value {
 func New(opt *Options, db DbConn) atomic.Value {
 	sx := &Sqlm{
 		LogPrefix: "[sqlm] ",
+		log:       opt.log,
 	}
 	sx.swapOpts(opt)
 	sx.dbcon = db
@@ -119,7 +118,7 @@ func New(opt *Options, db DbConn) atomic.Value {
 func (d *Db) Close() {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println(err)
+			d.log.Error(fmt.Sprintf("%v", err))
 		}
 	}()
 	if d.conn != nil {
@@ -129,7 +128,7 @@ func (d *Db) Close() {
 
 func (d *Db) Table(tbl string) *Table {
 	svr := d.server
-	return Tb(tbl).Use(d).PreTable(svr.Pretable)
+	return Tb(tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable)
 }
 
 func (d *Db) Action(exec ActionExec, args ...interface{}) (int64, error) {
