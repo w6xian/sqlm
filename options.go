@@ -20,7 +20,7 @@ type Server struct {
 	Database     string `json:"database"`
 	Host         string `json:"host"`
 	Port         int    `json:"port"`
-	Username     string `json:"user"`
+	Username     string `json:"username"`
 	Password     string `json:"password"`
 	Charset      string `json:"charset"`
 	Pretable     string `json:"pretable"`
