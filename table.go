@@ -428,20 +428,7 @@ func (t *Table) Query() (*Row, error) {
 	rows, err := t.dbConn.Query(query)
 	if err == nil {
 		defer rows.Close()
-		if columns, err := rows.Columns(); err == nil {
-			// 有拿到
-			if rows.Next() {
-				collen := len(columns)
-				__c := make([]interface{}, collen)
-				_c := make([]Column, collen)
-				for i := 0; i < collen; i++ {
-					__c[i] = &_c[i]
-				}
-				rows.Scan(__c...)
-				return &Row{Data: _c, ColumnName: columns, ColumnLen: collen}, nil
-			}
-			return nil, E404
-		}
+		return GetRow(rows)
 	}
 	return nil, err
 }
@@ -454,23 +441,7 @@ func (t *Table) QueryMulti() (*Rows, error) {
 	rows, err := t.dbConn.Query(query)
 	if err == nil {
 		defer rows.Close()
-		if columns, err := rows.Columns(); err == nil {
-			collen := len(columns)
-			__c := make([]interface{}, collen)
-			var _rows *Rows = NewSqlxRows()
-			for rows.Next() {
-				_c := make([]Column, collen)
-				for i := 0; i < collen; i++ {
-					__c[i] = &_c[i]
-				}
-				rows.Scan(__c...)
-				_rows.Append(Row{Data: _c, ColumnName: columns, ColumnLen: collen})
-			}
-			if _rows.Length() == 0 {
-				return nil, E404
-			}
-			return _rows, nil
-		}
+		return GetRows(rows)
 	}
 	return nil, err
 }

@@ -7,7 +7,43 @@ import (
 	"github.com/w6xian/sqlm/store"
 )
 
+type City struct {
+	Id   int
+	Name string
+}
+
 func main() {
+
+	// db, err := sql.Open("mysql", "root:1Qazxsw2@tcp(127.0.0.1:3306)/cloud")
+	// defer db.Close()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// var myid int = 2
+
+	// res, err := db.Query("SELECT id,com_name FROM mi_mall_so WHERE id = ?", myid)
+	// defer res.Close()
+
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// if res.Next() {
+
+	// 	var city City
+	// 	err := res.Scan(&city.Id, &city.Name)
+
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+
+	// 	fmt.Printf("%v\n", city)
+	// } else {
+
+	// 	fmt.Println("No city found")
+	// }
+	// os.Exit(0)
 	opt := sqlm.NewOptionsWithServer(sqlm.Server{
 		Database: "cloud",
 		Host:     "127.0.0.1",
@@ -31,8 +67,26 @@ func main() {
 	db := sqlm.Master()
 	defer db.Close()
 
-	// return nil
-	// 操作表
+	mRow, err := db.QueryMulti("SELECT id,parent_track,user_name FROM mi_mall_so WHERE proxy_id=? limit 10", 2)
+	if err == nil {
+		fmt.Println(mRow.Next().Get("user_name").String())
+	}
+
+	sRow, err := db.Query("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id = ?", 2)
+	if err == nil {
+		fmt.Println(sRow.Get("user_name").String())
+	}
+
+	query, _ := db.Conn()
+	// myid := 2
+	res, err := query.Query("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id = ?", 2)
+	if err == nil {
+		row, err := sqlm.GetRow(res)
+		if err == nil {
+			fmt.Println(row.Get("user_name").String())
+		}
+	}
+
 	row, err := db.Table("mall_so").Where("id=%d", 1).Query()
 
 	if err != nil {
@@ -43,7 +97,7 @@ func main() {
 
 	code, _ := db.Action(func(tx *sqlm.Tx, args ...interface{}) (int64, error) {
 
-		rows, err := tx.Table("mall_so").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
+		rows, err := tx.Table("mall_so").Select("id", "com_name").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
 		if err != nil {
 			fmt.Println(err.Error())
 		}

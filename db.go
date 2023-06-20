@@ -131,6 +131,32 @@ func (d *Db) Table(tbl string) *Table {
 	return Tb(tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable)
 }
 
+func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
+	rows, err := d.conn.Query(query, args...)
+	if err == nil {
+		defer rows.Close()
+		return GetRow(rows)
+	}
+	return nil, err
+}
+
+func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
+	rows, err := d.conn.Query(query, args...)
+	if err == nil {
+		defer rows.Close()
+		return GetRows(rows)
+	}
+	return nil, err
+}
+
+func (d *Db) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return d.conn.Exec(query, args...)
+}
+
+func (d *Db) Conn() (*sql.DB, error) {
+	return d.conn.Conn()
+}
+
 func (d *Db) Action(exec ActionExec, args ...interface{}) (int64, error) {
 	db, err := d.conn.Conn()
 	if err == nil {
