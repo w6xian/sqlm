@@ -59,9 +59,18 @@ func (m *Mysql) check() error {
 
 func (m *Mysql) Connect() error {
 
+	source := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database, m.conf.Charset)
+
+	if strings.HasPrefix(m.conf.Host, "unix:") {
+		parts := strings.SplitN(m.conf.Host, ":", 2)
+		socketPath := parts[1]
+		// mariadbUser+":"+mariadbPassword+"@unix("+socketPath+")"+"/"+mariadbDatabase+"?charset=utf8&parseTime=True"
+		source = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, socketPath, m.conf.Port, m.conf.Database, m.conf.Charset)
+	}
+
 	conn, err := sql.Open(
 		m.conf.Protocol,
-		fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database),
+		source,
 	)
 	if err != nil {
 		return err
