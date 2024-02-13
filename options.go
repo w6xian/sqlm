@@ -21,40 +21,42 @@ func NewOptionsWithServer(profile Server) (*Options, error) {
 	opts := &Options{}
 	opts.Server = profile
 	opts.log = &baseLog{Level: 9}
+	return opts, nil
+}
 
-	if profile.Mode != "demo" && profile.Mode != "dev" && profile.Mode != "prod" {
-		profile.Mode = "demo"
+func CheckOption(opt *Options) (*Options, error) {
+	if opt.Mode != "demo" && opt.Mode != "dev" && opt.Mode != "prod" {
+		opt.Mode = "demo"
 	}
 
-	if profile.Mode == "prod" && profile.Data == "" {
+	if opt.Mode == "prod" && opt.Data == "" {
 		if runtime.GOOS == "windows" {
-			profile.Data = filepath.Join(os.Getenv("ProgramData"), "memos")
+			opt.Data = filepath.Join(os.Getenv("ProgramData"), "memos")
 
-			if _, err := os.Stat(profile.Data); os.IsNotExist(err) {
-				if err := os.MkdirAll(profile.Data, 0770); err != nil {
-					fmt.Printf("Failed to create data directory: %s, err: %+v\n", profile.Data, err)
+			if _, err := os.Stat(opt.Data); os.IsNotExist(err) {
+				if err := os.MkdirAll(opt.Data, 0770); err != nil {
+					fmt.Printf("Failed to create data directory: %s, err: %+v\n", opt.Data, err)
 					return nil, err
 				}
 			}
 		} else {
-			profile.Data = "/var/opt/sqlm"
+			opt.Data = "/var/opt/sqlm"
 		}
 	}
 
-	dataDir, err := utils.CheckDataDir(profile.Data)
+	dataDir, err := utils.CheckDataDir(opt.Data)
 	if err != nil {
 		fmt.Printf("Failed to check dsn: %s, err: %+v\n", dataDir, err)
 		return nil, err
 	}
 
-	profile.Data = dataDir
-	if profile.Protocol == "sqlite" && profile.DSN == "" {
-		dbFile := fmt.Sprintf("sqlm_%s.db", profile.Mode)
-		profile.DSN = filepath.Join(dataDir, dbFile)
+	opt.Data = dataDir
+	if opt.Server.Protocol == "sqlite" && opt.Server.DSN == "" {
+		dbFile := fmt.Sprintf("sqlm_%s.db", opt.Mode)
+		opt.Server.DSN = filepath.Join(dataDir, dbFile)
 	}
-	profile.Version = GetCurrentVersion(profile.Mode)
-
-	return opts, nil
+	opt.Version = GetCurrentVersion(opt.Mode)
+	return opt, nil
 }
 
 type Server struct {
@@ -68,9 +70,6 @@ type Server struct {
 	Pretable     string `json:"pretable"`
 	Maxconnetion int    `json:"maxconnection"`
 	DSN          string `json:"dsn"`
-	Mode         string `json:"mode"`
-	Data         string `json:"data"`
-	Version      string `json:"version"`
 }
 
 type Options struct {
@@ -78,7 +77,10 @@ type Options struct {
 	Slavers []Server `json:"slavers"`
 	log     StdLog
 	//
-	Conn DbConn
+	Conn    DbConn
+	Mode    string `json:"mode"`
+	Data    string `json:"data"`
+	Version string `json:"version"`
 }
 
 func (c *Options) AddSlave(svr Server) {
@@ -95,5 +97,5 @@ func (opts *Options) GetLogger() StdLog {
 }
 
 func (p *Options) IsDev() bool {
-	return p.Server.Mode != "prod"
+	return p.Mode != "prod"
 }

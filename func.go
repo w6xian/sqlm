@@ -19,7 +19,7 @@ func GetRows(rows *sql.Rows) (*Rows, error) {
 			_rows.Append(Row{Data: _c, ColumnName: columns, ColumnLen: collen})
 		}
 		if _rows.Length() == 0 {
-			return nil, E404
+			return nil, ErrNotFound
 		}
 		return _rows, nil
 	}
@@ -41,7 +41,7 @@ func GetRow(rows *sql.Rows) (*Row, error) {
 			return &Row{Data: _c, ColumnName: columns, ColumnLen: collen}, nil
 		}
 
-		return nil, E404
+		return nil, ErrNotFound
 	}
 	return nil, err
 }

@@ -75,7 +75,7 @@ func (rs *Rows) Map(call func(res *Row, idx int) interface{}) []interface{} {
 	return copy
 }
 
-func (rs *Rows) getIndex(key string) int {
+func (rs *Rows) GetIndex(key string) int {
 	r := rs.Row()
 	for i := 0; i < r.ColumnLen; i++ {
 		if key == r.ColumnName[i] {

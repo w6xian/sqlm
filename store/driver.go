@@ -31,9 +31,13 @@ type Driver interface {
 
 // NewDBDriver creates new db driver based on profile.
 func NewDriver(opt *sqlm.Options) (Driver, error) {
-
 	var driver Driver
 	var err error
+
+	opt, err = sqlm.CheckOption(opt)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create check options")
+	}
 	switch opt.Server.Protocol {
 	case "sqlite":
 		driver, err = NewSqlite(opt)

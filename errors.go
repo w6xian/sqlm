@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	E404 error = errors.New("404")
+	ErrNotFound error = errors.New("404")
 )

@@ -48,7 +48,7 @@ func main() {
 		Database: "cloud",
 		Host:     "127.0.0.1",
 		Port:     3306,
-		Protocol: "mysql",
+		Protocol: "sqlite",
 		Username: "root",
 		Password: "1Qazxsw2",
 		Pretable: "mi_",
@@ -61,27 +61,28 @@ func main() {
 	// 使用mysql
 	con, err := store.NewDriver(opt)
 	if err != nil {
-		fmt.Println("not conne")
+		fmt.Println("not conne", err.Error())
 	}
+	fmt.Println(opt.Mode)
 
 	sqlm.New(opt, con)
 
 	db := sqlm.Master()
 	defer db.Close()
 
-	mRow, err := db.QueryMulti("SELECT id,parent_track,user_name FROM mi_mall_so WHERE proxy_id=? limit 10", 2)
+	mRow, err := db.QueryMulti("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id=? limit 10", 1)
 	if err == nil {
 		fmt.Println(mRow.Next().Get("user_name").String())
 	}
 
-	sRow, err := db.Query("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id = ?", 2)
+	sRow, err := db.Query("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id = ?", 1)
 	if err == nil {
 		fmt.Println(sRow.Get("user_name").String())
 	}
 
 	query, _ := db.Conn()
 	// myid := 2
-	res, err := query.Query("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id = ?", 2)
+	res, err := query.Query("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id = ?", 1)
 	if err == nil {
 		row, err := sqlm.GetRow(res)
 		if err == nil {
@@ -97,21 +98,29 @@ func main() {
 		fmt.Println(row.Get("com_name").String())
 	}
 
-	code, _ := db.Action(func(tx *sqlm.Tx, args ...interface{}) (int64, error) {
+	code, err := db.Action(func(tx *sqlm.Tx, args ...interface{}) (int64, error) {
 
 		rows, err := tx.Table("mall_so").Select("id", "com_name").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
 		if err != nil {
 			fmt.Println(err.Error())
 		}
 		for rows.Next() != nil {
-			fmt.Println(rows.Get("com_name").String())
+			fmt.Println("com_name", rows.Get("com_name").String())
+		}
+		_, err = tx.Table("cloud_mark").Insert(sqlm.KeyValue{
+			"com_id":  161,
+			"prd_pos": "ABCD",
+		})
+		if err != nil {
+			fmt.Println(err.Error())
 		}
 		return tx.Table("cloud_mark").Insert(sqlm.KeyValue{
-			"com_id":  161,
-			"prd_pos": 1,
+			"com_id":    161,
+			"prd_pos":   "ABC",
+			"prd_pos_t": "ABC",
 		})
 	})
-	fmt.Println(code)
+	fmt.Println(code, err)
 }
 
 type bLog struct {

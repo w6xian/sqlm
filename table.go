@@ -531,7 +531,7 @@ func (t *Table) getSql() string {
 	return sql
 }
 
-func (t *Table) option(op string) *Table {
+func (t *Table) Option(op string) *Table {
 	t.pOption = op
 	return t
 }
