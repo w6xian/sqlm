@@ -44,7 +44,7 @@ func main() {
 	// 	fmt.Println("No city found")
 	// }
 	// os.Exit(0)
-	opt := sqlm.NewOptionsWithServer(sqlm.Server{
+	opt, err := sqlm.NewOptionsWithServer(sqlm.Server{
 		Database: "cloud",
 		Host:     "127.0.0.1",
 		Port:     3306,
@@ -55,9 +55,11 @@ func main() {
 		Charset:  "utf8mb4",
 	})
 	opt.SetLogger(&bLog{Prefix: "[ABC]", Level: 8})
-
+	if err != nil {
+		fmt.Println("not conne")
+	}
 	// 使用mysql
-	con, err := store.NewMysql(opt)
+	con, err := store.NewDriver(opt)
 	if err != nil {
 		fmt.Println("not conne")
 	}

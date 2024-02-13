@@ -5,7 +5,12 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+
+	"github.com/pkg/errors"
 )
 
 func RandBytes(size int) []byte {
@@ -108,4 +113,33 @@ func GetString(value interface{}) string {
 		key = string(newValue)
 	}
 	return key
+}
+
+func BuildSqlQ(num int) []string {
+	rst := []string{}
+	for i := 0; i < num; i++ {
+		rst = append(rst, "?")
+	}
+	return rst
+}
+
+func CheckDataDir(dataDir string) (string, error) {
+	// Convert to absolute path if relative path is supplied.
+	if !filepath.IsAbs(dataDir) {
+		relativeDir := filepath.Join(filepath.Dir(os.Args[0]), dataDir)
+		absDir, err := filepath.Abs(relativeDir)
+		if err != nil {
+			return "", err
+		}
+		dataDir = absDir
+	}
+
+	// Trim trailing \ or / in case user supplies
+	dataDir = strings.TrimRight(dataDir, "\\/")
+
+	if _, err := os.Stat(dataDir); err != nil {
+		return "", errors.Wrapf(err, "unable to access data folder %s", dataDir)
+	}
+
+	return dataDir, nil
 }

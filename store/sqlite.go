@@ -5,50 +5,51 @@ import (
 	"fmt"
 	"strings"
 
-	"errors"
+	"github.com/pkg/errors"
 
-	_ "github.com/go-sql-driver/mysql"
+	// Import the SQLite driver.
 	"github.com/w6xian/sqlm"
 	"github.com/w6xian/sqlm/utils"
+	_ "modernc.org/sqlite"
 )
 
-type Mysql struct {
+type Sqlite struct {
 	conf        *sqlm.Server
 	connection  *sql.DB
 	isConnected bool
 	log         sqlm.StdLog
 }
 
-func NewMysql(opt *sqlm.Options) (Driver, error) {
-	return &Mysql{conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
+func NewSqlite(opt *sqlm.Options) (*Sqlite, error) {
+	return &Sqlite{conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
 
 }
 
-func (m *Mysql) NewConn(opt sqlm.Server) (sqlm.DbConn, error) {
-	return &Mysql{conf: &opt, isConnected: false}, nil
+func (m *Sqlite) NewConn(opt sqlm.Server) (sqlm.DbConn, error) {
+	return &Sqlite{conf: &opt, isConnected: false}, nil
 }
 
-func (m *Mysql) Conf() *sqlm.Server {
+func (m *Sqlite) Conf() *sqlm.Server {
 	return m.conf
 }
 
-func (m *Mysql) Ping() error {
+func (m *Sqlite) Ping() error {
 	if err := m.check(); err != nil {
 		return err
 	}
 	return m.connection.Ping()
 }
-func (m *Mysql) Conn() (*sql.DB, error) {
+func (m *Sqlite) Conn() (*sql.DB, error) {
 	return m.connection, nil
 }
-func (m *Mysql) Close() error {
+func (m *Sqlite) Close() error {
 	if err := m.check(); err != nil {
 		return err
 	}
 	return m.connection.Close()
 }
 
-func (m *Mysql) check() error {
+func (m *Sqlite) check() error {
 	if m.connection == nil {
 		return errors.New("请设置数据库链接")
 	}
@@ -58,23 +59,30 @@ func (m *Mysql) check() error {
 	return nil
 }
 
-func (m *Mysql) Connect() error {
+func (m *Sqlite) Connect() error {
+	// Connect to the database with some sane settings:
+	// - No shared-cache: it's obsolete; WAL journal mode is a better solution.
+	// - No foreign key constraints: it's currently disabled by default, but it's a
+	// good practice to be explicit and prevent future surprises on SQLite upgrades.
+	// - Journal mode set to WAL: it's the recommended journal mode for most applications
+	// as it prevents locking issues.
+	//
+	// Notes:
+	// - When using the `modernc.org/sqlite` driver, each pragma must be prefixed with `_pragma=`.
+	//
+	// References:
+	// - https://pkg.go.dev/modernc.org/sqlite#Driver.Open
+	// - https://www.sqlite.org/sharedcache.html
+	// - https://www.sqlite.org/pragma.html
 
-	source := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database, m.conf.Charset)
-
-	if strings.HasPrefix(m.conf.Host, "unix:") {
-		parts := strings.SplitN(m.conf.Host, ":", 2)
-		socketPath := parts[1]
-		// mariadbUser+":"+mariadbPassword+"@unix("+socketPath+")"+"/"+mariadbDatabase+"?charset=utf8&parseTime=True"
-		source = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, socketPath, m.conf.Port, m.conf.Database, m.conf.Charset)
-	}
+	source := fmt.Sprintf("%s?%s", m.conf.DSN, "_pragma=foreign_keys(0)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)")
 
 	conn, err := sql.Open(
 		m.conf.Protocol,
 		source,
 	)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to open db with dsn: %s", m.conf.DSN)
 	}
 	err = conn.Ping()
 	if err != nil {
@@ -86,20 +94,20 @@ func (m *Mysql) Connect() error {
 	return nil
 }
 
-func (m *Mysql) Delete(query string, args ...interface{}) (*sql.Rows, error) {
+func (m *Sqlite) Delete(query string, args ...interface{}) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
 		return nil, errors.New("does not connected")
 	}
 	return m.connection.Query(query, args...)
 }
 
-func (m *Mysql) Prepare(query string) (*sql.Stmt, error) {
+func (m *Sqlite) Prepare(query string) (*sql.Stmt, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
 	return m.connection.Prepare(query)
 }
-func (m *Mysql) Query(query string, args ...interface{}) (*sql.Rows, error) {
+func (m *Sqlite) Query(query string, args ...interface{}) (*sql.Rows, error) {
 
 	if err := m.check(); err != nil {
 		return nil, err
@@ -107,7 +115,7 @@ func (m *Mysql) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return m.connection.Query(query, args...)
 }
 
-func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
+func (m *Sqlite) Exec(query string, args ...interface{}) (sql.Result, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
@@ -123,7 +131,7 @@ func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return rst, nil
 }
 
-func (m *Mysql) Insert(pTable string, columns []string, data []interface{}) (int64, error) {
+func (m *Sqlite) Insert(pTable string, columns []string, data []interface{}) (int64, error) {
 	if len(columns) != len(data) {
 		return 0, errors.New("请确保column长度统一")
 	}
@@ -150,7 +158,7 @@ func (m *Mysql) Insert(pTable string, columns []string, data []interface{}) (int
 /**
  * 为了执行效率，请自行保证query中需要的参数个数与后面的参数中数组长度相对应
  */
-func (m *Mysql) Inserts(pTable string, columns []string, data [][]interface{}) (int64, error) {
+func (m *Sqlite) Inserts(pTable string, columns []string, data [][]interface{}) (int64, error) {
 
 	if err := m.check(); err != nil {
 		return 0, err
