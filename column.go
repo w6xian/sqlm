@@ -20,6 +20,10 @@ func (rows Column) Int64() (int64, error) {
 	return strconv.ParseInt(string(rows), 10, 64)
 }
 
+func (rows Column) Uint64() (uint64, error) {
+	return strconv.ParseUint(string(rows), 10, 64)
+}
+
 func (rows Column) Float64() (float64, error) {
 	return strconv.ParseFloat(string(rows), 64)
 }
