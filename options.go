@@ -68,8 +68,10 @@ type Server struct {
 	Password     string `json:"password"`
 	Charset      string `json:"charset"`
 	Pretable     string `json:"pretable"`
-	Maxconnetion int    `json:"maxconnection"`
 	DSN          string `json:"dsn"`
+	MaxOpenConns int    `json:"max_open_conns"`
+	MaxIdleConns int    `json:"max_idel_conns"`
+	MaxLifetime  int    `json:"max_life_time"`
 }
 
 type Options struct {
@@ -98,4 +100,9 @@ func (opts *Options) GetLogger() StdLog {
 
 func (p *Options) IsDev() bool {
 	return p.Mode != "prod"
+}
+
+func NewServer() *Server {
+	svr := &Server{}
+	return svr
 }

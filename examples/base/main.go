@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/w6xian/sqlm"
 	"github.com/w6xian/sqlm/store"
@@ -45,14 +47,17 @@ func main() {
 	// }
 	// os.Exit(0)
 	opt, err := sqlm.NewOptionsWithServer(sqlm.Server{
-		Database: "cloud",
-		Host:     "127.0.0.1",
-		Port:     3306,
-		Protocol: "sqlite",
-		Username: "root",
-		Password: "1Qazxsw2",
-		Pretable: "mi_",
-		Charset:  "utf8mb4",
+		Database:     "cloud",
+		Host:         "127.0.0.1",
+		Port:         3306,
+		Protocol:     "sqlite",
+		Username:     "root",
+		Password:     "1Qazxsw2",
+		Pretable:     "mi_",
+		Charset:      "utf8mb4",
+		MaxOpenConns: 64,
+		MaxIdleConns: 64,
+		MaxLifetime:  int(time.Second) * 60,
 	})
 	opt.SetLogger(&bLog{Prefix: "[ABC]", Level: 8})
 	if err != nil {
@@ -67,7 +72,7 @@ func main() {
 
 	sqlm.New(opt, con)
 
-	db := sqlm.Master()
+	db := sqlm.Major(context.Background())
 	defer db.Close()
 
 	mRow, err := db.QueryMulti("SELECT id,parent_track,user_name FROM mi_mall_so WHERE id=? limit 10", 1)

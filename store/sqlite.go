@@ -1,9 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -25,8 +27,8 @@ func NewSqlite(opt *sqlm.Options) (*Sqlite, error) {
 
 }
 
-func (m *Sqlite) NewConn(opt sqlm.Server) (sqlm.DbConn, error) {
-	return &Sqlite{conf: &opt, isConnected: false}, nil
+func (m *Sqlite) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
+	return &Sqlite{conf: m.conf, connection: conn, isConnected: false}, nil
 }
 
 func (m *Sqlite) Conf() *sqlm.Server {
@@ -59,7 +61,7 @@ func (m *Sqlite) check() error {
 	return nil
 }
 
-func (m *Sqlite) Connect() error {
+func (m *Sqlite) Connect() (sqlm.DbConn, error) {
 	// Connect to the database with some sane settings:
 	// - No shared-cache: it's obsolete; WAL journal mode is a better solution.
 	// - No foreign key constraints: it's currently disabled by default, but it's a
@@ -82,16 +84,19 @@ func (m *Sqlite) Connect() error {
 		source,
 	)
 	if err != nil {
-		return errors.Wrapf(err, "failed to open db with dsn: %s", m.conf.DSN)
+		return nil, errors.Wrapf(err, "failed to open db with dsn: %s", m.conf.DSN)
 	}
 	err = conn.Ping()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	m.isConnected = true
 	m.connection = conn
-	conn.SetMaxOpenConns(m.conf.Maxconnetion)
-	return nil
+	conn.SetMaxOpenConns(m.conf.MaxOpenConns)
+	conn.SetMaxIdleConns(m.conf.MaxIdleConns)
+	conn.SetConnMaxLifetime(time.Duration(m.conf.MaxLifetime))
+	newconn, _ := m.NewConn(conn, true)
+	return newconn, nil
 }
 
 func (m *Sqlite) Delete(query string, args ...interface{}) (*sql.Rows, error) {
@@ -109,13 +114,22 @@ func (m *Sqlite) Prepare(query string) (*sql.Stmt, error) {
 }
 func (m *Sqlite) Query(query string, args ...interface{}) (*sql.Rows, error) {
 
+	return m.QueryContext(context.Background(), query, args...)
+}
+
+func (m *Sqlite) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return m.ExecContext(context.Background(), query, args...)
+}
+
+func (m *Sqlite) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+
 	if err := m.check(); err != nil {
 		return nil, err
 	}
 	return m.connection.Query(query, args...)
 }
 
-func (m *Sqlite) Exec(query string, args ...interface{}) (sql.Result, error) {
+func (m *Sqlite) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}

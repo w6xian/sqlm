@@ -1,6 +1,7 @@
 package sqlm
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,23 +9,26 @@ import (
 )
 
 var sqlx atomic.Value
+var spanName = "sql"
 
 type ActionExec func(tx *Tx, args ...interface{}) (int64, error)
 
 type TxConn interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	Prepare(query string) (*sql.Stmt, error)
 	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }
 
 type DbConn interface {
 	TxConn
+	Connect() (DbConn, error)
 	Ping() error
-	Connect() error
 	Conn() (*sql.DB, error)
 	Close() error
 	Conf() *Server
-	NewConn(opt Server) (DbConn, error)
+	NewConn(conn *sql.DB, isconnected bool) (DbConn, error)
 }
 
 type Sqlm struct {
@@ -32,27 +36,6 @@ type Sqlm struct {
 	dbcon     DbConn
 	LogPrefix string
 	log       StdLog
-}
-
-func (d *Sqlm) Use(dbName ...string) (*Db, error) {
-	cfg := d.getOpts()
-	svr := cfg.Server
-	if len(dbName) > 0 {
-		name := dbName[0]
-		svr.Database = name
-	}
-	con, err := d.dbcon.NewConn(svr)
-	if err != nil {
-		return nil, err
-	}
-	db := &Db{}
-	db.conn = con
-	db.log = cfg.log
-	err = con.Connect()
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
 }
 
 func (d *Sqlm) swapOpts(opts *Options) {
@@ -73,20 +56,46 @@ func Slaver(slaver ...int) *Db {
 	dbcon.conn = cf.dbcon
 	dbcon.server = cf.getOpts().Slavers[pos]
 	dbcon.log = cf.getOpts().log
+	dbcon.ctx = context.Background()
 	dbcon.conn.Connect()
 	return dbcon
 }
 
+/*
+ * [deprecated]请用Major()替代
+ */
 func Master() *Db {
+	return MasterWithContext(context.Background())
+}
+
+/*
+ * [deprecated]请用Major()替代
+ */
+func MasterWithContext(ctx context.Context) *Db {
 	dbcon := &Db{}
 	cf := getSqlx()
-	dbcon.conn = cf.dbcon
 	dbcon.server = cf.getOpts().Server
 	dbcon.log = cf.getOpts().log
-	err := dbcon.conn.Connect()
+	dbcon.ctx = ctx
+	conn, err := dbcon.conn.Connect()
 	if err != nil {
 		cf.getOpts().log.Error(err.Error())
 	}
+	dbcon.conn = conn
+	return dbcon
+}
+
+func Major(ctx context.Context) *Db {
+	dbcon := &Db{}
+	sm := getSqlx()
+	dbcon.server = sm.getOpts().Server
+	dbcon.log = sm.getOpts().log
+	dbcon.ctx = ctx
+	conn, err := sm.dbcon.Connect()
+	if err != nil {
+		sm.getOpts().log.Error(err.Error())
+	}
+	dbcon.conn = conn
 	return dbcon
 }
 
@@ -94,6 +103,7 @@ type Db struct {
 	conn   DbConn
 	server Server
 	log    StdLog
+	ctx    context.Context
 }
 
 func getSqlx() *Sqlm {
@@ -132,7 +142,11 @@ func (d *Db) Table(tbl string) *Table {
 }
 
 func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
-	rows, err := d.conn.Query(query, args...)
+	return d.QueryContext(context.Background(), query, args...)
+}
+
+func (d *Db) QueryContext(ctx context.Context, query string, args ...interface{}) (*Row, error) {
+	rows, err := d.conn.QueryContext(ctx, query, args...)
 	if err == nil {
 		defer rows.Close()
 		return GetRow(rows)
@@ -141,6 +155,10 @@ func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
 }
 
 func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
+	return d.QueryMultiContext(context.Background(), query, args...)
+}
+
+func (d *Db) QueryMultiContext(ctx context.Context, query string, args ...interface{}) (*Rows, error) {
 	rows, err := d.conn.Query(query, args...)
 	if err == nil {
 		defer rows.Close()
@@ -150,6 +168,10 @@ func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
 }
 
 func (d *Db) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return d.conn.ExecContext(context.Background(), query, args...)
+}
+
+func (d *Db) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	return d.conn.Exec(query, args...)
 }
 
@@ -157,7 +179,7 @@ func (d *Db) Conn() (*sql.DB, error) {
 	return d.conn.Conn()
 }
 
-func (d *Db) Action(exec ActionExec, args ...interface{}) (int64, error) {
+func (d *Db) Action(exec ActionExec) (int64, error) {
 	db, err := d.conn.Conn()
 	if err == nil {
 		if err := db.Ping(); err == nil {
@@ -169,7 +191,7 @@ func (d *Db) Action(exec ActionExec, args ...interface{}) (int64, error) {
 				}()
 				tx := &Tx{db: d}
 				tx.Use(_tx)
-				if ok, err := exec(tx, args...); err == nil {
+				if ok, err := exec(tx); err == nil {
 					_tx.Commit()
 					return ok, err
 				} else {

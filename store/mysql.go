@@ -1,9 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"errors"
 
@@ -24,8 +26,8 @@ func NewMysql(opt *sqlm.Options) (Driver, error) {
 
 }
 
-func (m *Mysql) NewConn(opt sqlm.Server) (sqlm.DbConn, error) {
-	return &Mysql{conf: &opt, isConnected: false}, nil
+func (m *Mysql) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
+	return &Mysql{conf: m.conf, connection: conn, isConnected: isConnected}, nil
 }
 
 func (m *Mysql) Conf() *sqlm.Server {
@@ -58,7 +60,7 @@ func (m *Mysql) check() error {
 	return nil
 }
 
-func (m *Mysql) Connect() error {
+func (m *Mysql) Connect() (sqlm.DbConn, error) {
 
 	source := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database, m.conf.Charset)
 
@@ -74,16 +76,20 @@ func (m *Mysql) Connect() error {
 		source,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = conn.Ping()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	m.isConnected = true
-	m.connection = conn
-	conn.SetMaxOpenConns(m.conf.Maxconnetion)
-	return nil
+	conn.SetMaxOpenConns(m.conf.MaxOpenConns)
+	conn.SetMaxIdleConns(m.conf.MaxIdleConns)
+	conn.SetConnMaxLifetime(time.Duration(m.conf.MaxLifetime))
+	newConn, err := m.NewConn(conn, true)
+	if err != nil {
+		return nil, err
+	}
+	return newConn, nil
 }
 
 func (m *Mysql) Delete(query string, args ...interface{}) (*sql.Rows, error) {
@@ -101,13 +107,22 @@ func (m *Mysql) Prepare(query string) (*sql.Stmt, error) {
 }
 func (m *Mysql) Query(query string, args ...interface{}) (*sql.Rows, error) {
 
+	return m.QueryContext(context.Background(), query, args...)
+}
+
+func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return m.ExecContext(context.Background(), query, args...)
+}
+
+func (m *Mysql) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+
 	if err := m.check(); err != nil {
 		return nil, err
 	}
 	return m.connection.Query(query, args...)
 }
 
-func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
+func (m *Mysql) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}

@@ -2,11 +2,6 @@ package sqlm
 
 import "database/sql"
 
-type ITable interface {
-	Table(tbl string) *Table
-	Exec(query string, args ...interface{}) (sql.Result, error)
-}
-
 type Tx struct {
 	db         *Db
 	connection TxConn
