@@ -1,6 +1,7 @@
 package sqlm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -29,9 +30,14 @@ type Table struct {
 	pPre     string
 	db       *Db
 	log      StdLog
+	ctx      context.Context
 }
 
 func NewTable(tle string) *Table {
+	return NewTableWithContext(context.Background(), tle)
+}
+
+func NewTableWithContext(ctx context.Context, tle string) *Table {
 	pt := &Table{}
 	pt.pColumns = []string{}
 	pt.pData = make(map[string]string)
@@ -39,6 +45,7 @@ func NewTable(tle string) *Table {
 	pt.pType = "array"
 	pt.pTable = tle
 	pt.pPre = ""
+	pt.ctx = ctx
 	return pt
 }
 
@@ -99,28 +106,6 @@ func (t *Table) pushConditions(w string) *Table {
 	return t
 }
 
-// func (t *Table) UseSlave(dbName string, server string) *Table {
-// 	t.Server = NewServer(server)
-// 	t.Database = dbName
-// 	return t
-// }
-
-// // 满足条件使用
-// func (t *Table) UseSlaveOption(ok bool, dbName string, server string) *Table {
-// 	if ok {
-// 		t.Server = NewServer(server)
-// 		t.Database = dbName
-// 	}
-// 	return t
-// }
-
-// func (t *Table) UseMaster(dbName string, server string) *Table {
-
-// 	t.Server = NewServer(server)
-// 	t.Database = dbName
-// 	return t
-// }
-
 func (t *Table) check() error {
 	if t.dbConn == nil {
 		return errors.New("请调用UseConn方法后再执行")
@@ -148,7 +133,7 @@ func (t *Table) Insert(data map[string]interface{}) (int64, error) {
 		return 0, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(values...)
+	rst, err := stmt.ExecContext(t.ctx, values...)
 	if err != nil {
 		return 0, err
 	}

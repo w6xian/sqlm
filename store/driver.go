@@ -17,13 +17,12 @@ type Driver interface {
 	Conn() (*sql.DB, error)
 	Close() error
 	check() error
-	Connect() (sqlm.DbConn, error)
+	Connect(ctx context.Context) (sqlm.DbConn, error)
+	WithContext(ctx context.Context)
 	Delete(query string, args ...interface{}) (*sql.Rows, error)
 	Prepare(query string) (*sql.Stmt, error)
 	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 	Exec(query string, args ...interface{}) (sql.Result, error)
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	Insert(pTable string, columns []string, data []interface{}) (int64, error)
 	/**
 	 * 为了执行效率，请自行保证query中需要的参数个数与后面的参数中数组长度相对应

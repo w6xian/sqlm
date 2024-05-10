@@ -1,10 +1,14 @@
 package sqlm
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 type Tx struct {
 	db         *Db
 	connection TxConn
+	ctx        context.Context
 }
 
 func (tx *Tx) Use(dbc TxConn) {
@@ -13,7 +17,7 @@ func (tx *Tx) Use(dbc TxConn) {
 
 func (tx *Tx) Table(tbl string) *Table {
 	svr := tx.db.server
-	return Tb(tbl).UseLog(tx.db.log).Use(tx.db).UseConn(tx.connection).PreTable(svr.Pretable)
+	return Tbx(tx.ctx, tbl).UseLog(tx.db.log).Use(tx.db).UseConn(tx.connection).PreTable(svr.Pretable)
 }
 
 func (tx *Tx) Exec(query string, args ...interface{}) (sql.Result, error) {

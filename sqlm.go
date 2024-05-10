@@ -1,12 +1,17 @@
 package sqlm
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
 func Tb(tbl string) *Table {
-	return NewTable(tbl)
+	return NewTableWithContext(context.Background(), tbl)
+}
+
+func Tbx(ctx context.Context, tbl string) *Table {
+	return NewTableWithContext(ctx, tbl)
 }
 
 func String(value string) string {

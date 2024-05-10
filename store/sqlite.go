@@ -20,6 +20,7 @@ type Sqlite struct {
 	connection  *sql.DB
 	isConnected bool
 	log         sqlm.StdLog
+	ctx         context.Context
 }
 
 func NewSqlite(opt *sqlm.Options) (*Sqlite, error) {
@@ -39,7 +40,7 @@ func (m *Sqlite) Ping() error {
 	if err := m.check(); err != nil {
 		return err
 	}
-	return m.connection.Ping()
+	return m.connection.PingContext(m.ctx)
 }
 func (m *Sqlite) Conn() (*sql.DB, error) {
 	return m.connection, nil
@@ -55,13 +56,13 @@ func (m *Sqlite) check() error {
 	if m.connection == nil {
 		return errors.New("请设置数据库链接")
 	}
-	if err := m.connection.Ping(); err != nil {
+	if err := m.connection.PingContext(m.ctx); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *Sqlite) Connect() (sqlm.DbConn, error) {
+func (m *Sqlite) Connect(ctx context.Context) (sqlm.DbConn, error) {
 	// Connect to the database with some sane settings:
 	// - No shared-cache: it's obsolete; WAL journal mode is a better solution.
 	// - No foreign key constraints: it's currently disabled by default, but it's a
@@ -96,49 +97,46 @@ func (m *Sqlite) Connect() (sqlm.DbConn, error) {
 	conn.SetMaxIdleConns(m.conf.MaxIdleConns)
 	conn.SetConnMaxLifetime(time.Duration(m.conf.MaxLifetime))
 	newconn, _ := m.NewConn(conn, true)
+	newconn.WithContext(ctx)
 	return newconn, nil
+}
+
+func (m *Sqlite) WithContext(ctx context.Context) {
+	m.ctx = ctx
 }
 
 func (m *Sqlite) Delete(query string, args ...interface{}) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
 		return nil, errors.New("does not connected")
 	}
-	return m.connection.Query(query, args...)
+	return m.connection.QueryContext(m.ctx, query, args...)
 }
 
 func (m *Sqlite) Prepare(query string) (*sql.Stmt, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	return m.connection.Prepare(query)
+	return m.connection.PrepareContext(m.ctx, query)
 }
+
 func (m *Sqlite) Query(query string, args ...interface{}) (*sql.Rows, error) {
 
-	return m.QueryContext(context.Background(), query, args...)
+	if err := m.check(); err != nil {
+		return nil, err
+	}
+	return m.connection.QueryContext(m.ctx, query, args...)
 }
 
 func (m *Sqlite) Exec(query string, args ...interface{}) (sql.Result, error) {
-	return m.ExecContext(context.Background(), query, args...)
-}
-
-func (m *Sqlite) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	return m.connection.Query(query, args...)
-}
-
-func (m *Sqlite) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-	if err := m.check(); err != nil {
-		return nil, err
-	}
-	stmt, err := m.connection.Prepare(query)
+	stmt, err := m.connection.PrepareContext(m.ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(args...)
+	rst, err := stmt.ExecContext(m.ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +155,12 @@ func (m *Sqlite) Insert(pTable string, columns []string, data []interface{}) (in
 	}
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", pTable, strings.Join(columns, ","), strings.Join(utils.BuildSqlQ(len(data)), ","))
 
-	stmt, err := m.connection.Prepare(sql)
+	stmt, err := m.connection.PrepareContext(m.ctx, sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(data...)
+	rst, err := stmt.ExecContext(m.ctx, data...)
 	if err != nil {
 		return 0, err
 	}
@@ -204,12 +202,12 @@ func (m *Sqlite) Inserts(pTable string, columns []string, data [][]interface{}) 
 	}
 
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s", pTable, strings.Join(columns, ","), strings.Join(qarr, ","))
-	stmt, err := m.connection.Prepare(sql)
+	stmt, err := m.connection.PrepareContext(m.ctx, sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(val...)
+	rst, err := stmt.ExecContext(m.ctx, val...)
 	if err != nil {
 		return 0, err
 	}

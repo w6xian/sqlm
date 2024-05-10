@@ -19,6 +19,7 @@ type Mysql struct {
 	connection  *sql.DB
 	isConnected bool
 	log         sqlm.StdLog
+	ctx         context.Context
 }
 
 func NewMysql(opt *sqlm.Options) (Driver, error) {
@@ -38,7 +39,7 @@ func (m *Mysql) Ping() error {
 	if err := m.check(); err != nil {
 		return err
 	}
-	return m.connection.Ping()
+	return m.connection.PingContext(m.ctx)
 }
 func (m *Mysql) Conn() (*sql.DB, error) {
 	return m.connection, nil
@@ -60,8 +61,7 @@ func (m *Mysql) check() error {
 	return nil
 }
 
-func (m *Mysql) Connect() (sqlm.DbConn, error) {
-
+func (m *Mysql) Connect(ctx context.Context) (sqlm.DbConn, error) {
 	source := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database, m.conf.Charset)
 
 	if strings.HasPrefix(m.conf.Host, "unix:") {
@@ -86,52 +86,46 @@ func (m *Mysql) Connect() (sqlm.DbConn, error) {
 	conn.SetMaxIdleConns(m.conf.MaxIdleConns)
 	conn.SetConnMaxLifetime(time.Duration(m.conf.MaxLifetime))
 	newConn, err := m.NewConn(conn, true)
+	newConn.WithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return newConn, nil
+}
+func (m *Mysql) WithContext(ctx context.Context) {
+	m.ctx = ctx
 }
 
 func (m *Mysql) Delete(query string, args ...interface{}) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
 		return nil, errors.New("does not connected")
 	}
-	return m.connection.Query(query, args...)
+	return m.connection.QueryContext(m.ctx, query, args...)
 }
 
 func (m *Mysql) Prepare(query string) (*sql.Stmt, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	return m.connection.Prepare(query)
+	return m.connection.PrepareContext(m.ctx, query)
 }
 func (m *Mysql) Query(query string, args ...interface{}) (*sql.Rows, error) {
-
-	return m.QueryContext(context.Background(), query, args...)
+	if err := m.check(); err != nil {
+		return nil, err
+	}
+	return m.connection.QueryContext(m.ctx, query, args...)
 }
 
 func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
-	return m.ExecContext(context.Background(), query, args...)
-}
-
-func (m *Mysql) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	return m.connection.Query(query, args...)
-}
-
-func (m *Mysql) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-	if err := m.check(); err != nil {
-		return nil, err
-	}
-	stmt, err := m.connection.Prepare(query)
+	stmt, err := m.connection.PrepareContext(m.ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(args...)
+	rst, err := stmt.ExecContext(m.ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,12 +144,12 @@ func (m *Mysql) Insert(pTable string, columns []string, data []interface{}) (int
 	}
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", pTable, strings.Join(columns, ","), strings.Join(utils.BuildSqlQ(len(data)), ","))
 
-	stmt, err := m.connection.Prepare(sql)
+	stmt, err := m.connection.PrepareContext(m.ctx, sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(data...)
+	rst, err := stmt.ExecContext(m.ctx, data...)
 	if err != nil {
 		return 0, err
 	}
@@ -197,12 +191,12 @@ func (m *Mysql) Inserts(pTable string, columns []string, data [][]interface{}) (
 	}
 
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s", pTable, strings.Join(columns, ","), strings.Join(qarr, ","))
-	stmt, err := m.connection.Prepare(sql)
+	stmt, err := m.connection.PrepareContext(m.ctx, sql)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
-	rst, err := stmt.Exec(val...)
+	rst, err := stmt.ExecContext(m.ctx, val...)
 	if err != nil {
 		return 0, err
 	}

@@ -15,15 +15,14 @@ type ActionExec func(tx *Tx, args ...interface{}) (int64, error)
 
 type TxConn interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	Prepare(query string) (*sql.Stmt, error)
 	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }
 
 type DbConn interface {
 	TxConn
-	Connect() (DbConn, error)
+	Connect(ctx context.Context) (DbConn, error)
+	WithContext(ctx context.Context)
 	Ping() error
 	Conn() (*sql.DB, error)
 	Close() error
@@ -47,17 +46,24 @@ func (d *Sqlm) getOpts() *Options {
 }
 
 func Slaver(slaver ...int) *Db {
+	return SlaverContext(context.Background(), slaver...)
+}
+
+func SlaverContext(ctx context.Context, slaver ...int) *Db {
 	pos := 0
 	if len(slaver) > 0 {
 		pos = slaver[0]
 	}
 	dbcon := &Db{}
-	cf := getSqlx()
-	dbcon.conn = cf.dbcon
-	dbcon.server = cf.getOpts().Slavers[pos]
-	dbcon.log = cf.getOpts().log
-	dbcon.ctx = context.Background()
-	dbcon.conn.Connect()
+	sl := getSqlx()
+	dbcon.server = sl.getOpts().Slavers[pos]
+	dbcon.log = sl.getOpts().log
+	dbcon.ctx = ctx
+	conn, err := sl.dbcon.Connect(ctx)
+	if err != nil {
+		sl.getOpts().log.Error(err.Error())
+	}
+	dbcon.conn = conn
 	return dbcon
 }
 
@@ -65,24 +71,14 @@ func Slaver(slaver ...int) *Db {
  * [deprecated]请用Major()替代
  */
 func Master() *Db {
-	return MasterWithContext(context.Background())
+	return MasterContext(context.Background())
 }
 
 /*
  * [deprecated]请用Major()替代
  */
-func MasterWithContext(ctx context.Context) *Db {
-	dbcon := &Db{}
-	cf := getSqlx()
-	dbcon.server = cf.getOpts().Server
-	dbcon.log = cf.getOpts().log
-	dbcon.ctx = ctx
-	conn, err := dbcon.conn.Connect()
-	if err != nil {
-		cf.getOpts().log.Error(err.Error())
-	}
-	dbcon.conn = conn
-	return dbcon
+func MasterContext(ctx context.Context) *Db {
+	return Major(ctx)
 }
 
 func Major(ctx context.Context) *Db {
@@ -91,7 +87,7 @@ func Major(ctx context.Context) *Db {
 	dbcon.server = sm.getOpts().Server
 	dbcon.log = sm.getOpts().log
 	dbcon.ctx = ctx
-	conn, err := sm.dbcon.Connect()
+	conn, err := sm.dbcon.Connect(ctx)
 	if err != nil {
 		sm.getOpts().log.Error(err.Error())
 	}
@@ -138,15 +134,11 @@ func (d *Db) Close() {
 
 func (d *Db) Table(tbl string) *Table {
 	svr := d.server
-	return Tb(tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable)
+	return Tbx(d.ctx, tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable)
 }
 
 func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
-	return d.QueryContext(context.Background(), query, args...)
-}
-
-func (d *Db) QueryContext(ctx context.Context, query string, args ...interface{}) (*Row, error) {
-	rows, err := d.conn.QueryContext(ctx, query, args...)
+	rows, err := d.conn.Query(query, args...)
 	if err == nil {
 		defer rows.Close()
 		return GetRow(rows)
@@ -155,10 +147,6 @@ func (d *Db) QueryContext(ctx context.Context, query string, args ...interface{}
 }
 
 func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
-	return d.QueryMultiContext(context.Background(), query, args...)
-}
-
-func (d *Db) QueryMultiContext(ctx context.Context, query string, args ...interface{}) (*Rows, error) {
 	rows, err := d.conn.Query(query, args...)
 	if err == nil {
 		defer rows.Close()
@@ -167,11 +155,7 @@ func (d *Db) QueryMultiContext(ctx context.Context, query string, args ...interf
 	return nil, err
 }
 
-func (d *Db) Exec(query string, args ...interface{}) (sql.Result, error) {
-	return d.conn.ExecContext(context.Background(), query, args...)
-}
-
-func (d *Db) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (d *Db) Exe(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	return d.conn.Exec(query, args...)
 }
 
@@ -189,7 +173,7 @@ func (d *Db) Action(exec ActionExec) (int64, error) {
 						_tx.Rollback()
 					}
 				}()
-				tx := &Tx{db: d}
+				tx := &Tx{db: d, ctx: d.ctx}
 				tx.Use(_tx)
 				if ok, err := exec(tx); err == nil {
 					_tx.Commit()
