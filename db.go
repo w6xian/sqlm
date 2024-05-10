@@ -155,7 +155,7 @@ func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
 	return nil, err
 }
 
-func (d *Db) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (d *Db) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return d.conn.Exec(query, args...)
 }
 
