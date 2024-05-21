@@ -50,7 +50,7 @@ func main() {
 		Database:     "cloud",
 		Host:         "127.0.0.1",
 		Port:         3306,
-		Protocol:     "sqlite",
+		Protocol:     "mysql",
 		Username:     "root",
 		Password:     "1Qazxsw2",
 		Pretable:     "mi_",
@@ -109,6 +109,9 @@ func main() {
 		if err != nil {
 			fmt.Println(err.Error())
 		}
+
+		fmt.Println(rows.ToKeyValueMap("id", "com_name"))
+		fmt.Println(rows.ToKeyMap("id"))
 		for rows.Next() != nil {
 			fmt.Println("com_name", rows.Get("com_name").String())
 		}

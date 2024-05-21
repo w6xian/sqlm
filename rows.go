@@ -119,3 +119,22 @@ func (r *Rows) ToArray() []map[string]interface{} {
 	}
 	return s
 }
+
+func (r *Rows) ToKeyMap(col string) map[string]*Row {
+	m := map[string]*Row{}
+	for _, row := range r.Lists {
+		key := row.Get(col).String()
+		m[key] = row
+	}
+	return m
+}
+
+func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
+	m := map[string]Column{}
+	for _, row := range r.Lists {
+		key := row.Get(keyCol).String()
+		value := row.Get(valueCol)
+		m[key] = value
+	}
+	return m
+}
