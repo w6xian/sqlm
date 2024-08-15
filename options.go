@@ -17,8 +17,12 @@ func NewOptions() *Options {
 	return opts
 }
 
-func NewOptionsWithServer(profile Server) (*Options, error) {
+func NewOptionsWithServer(profile Server, args ...string) (*Options, error) {
+	if len(args) == 0 {
+		args = []string{DEFAULT_KEY}
+	}
 	opts := &Options{}
+	opts.Name = args[0]
 	opts.Server = profile
 	opts.log = &baseLog{Level: 9}
 	return opts, nil
@@ -75,6 +79,7 @@ type Server struct {
 }
 
 type Options struct {
+	Name    string   `json:"name"`
 	Server  Server   `json:"server"`
 	Slavers []Server `json:"slavers"`
 	log     StdLog

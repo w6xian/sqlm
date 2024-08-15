@@ -15,6 +15,7 @@ import (
 )
 
 type Mysql struct {
+	options     *sqlm.Options
 	conf        *sqlm.Server
 	connection  *sql.DB
 	isConnected bool
@@ -23,7 +24,7 @@ type Mysql struct {
 }
 
 func NewMysql(opt *sqlm.Options) (Driver, error) {
-	return &Mysql{conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
+	return &Mysql{options: opt, conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
 
 }
 
@@ -33,6 +34,10 @@ func (m *Mysql) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
 
 func (m *Mysql) Conf() *sqlm.Server {
 	return m.conf
+}
+
+func (m *Mysql) Options() *sqlm.Options {
+	return m.options
 }
 
 func (m *Mysql) Ping() error {

@@ -16,6 +16,7 @@ import (
 )
 
 type Sqlite struct {
+	options     *sqlm.Options
 	conf        *sqlm.Server
 	connection  *sql.DB
 	isConnected bool
@@ -24,7 +25,7 @@ type Sqlite struct {
 }
 
 func NewSqlite(opt *sqlm.Options) (*Sqlite, error) {
-	return &Sqlite{conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
+	return &Sqlite{options: opt, conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
 
 }
 
@@ -34,6 +35,9 @@ func (m *Sqlite) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
 
 func (m *Sqlite) Conf() *sqlm.Server {
 	return m.conf
+}
+func (m *Sqlite) Options() *sqlm.Options {
+	return m.options
 }
 
 func (m *Sqlite) Ping() error {

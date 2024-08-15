@@ -13,6 +13,7 @@ import (
 type Driver interface {
 	NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error)
 	Conf() *sqlm.Server
+	Options() *sqlm.Options
 	Ping() error
 	Conn() (*sql.DB, error)
 	Close() error

@@ -140,11 +140,14 @@ func (t *Table) Insert(data map[string]interface{}) (int64, error) {
 	return rst.LastInsertId()
 }
 
-func (t *Table) Inserts(columns []string, data [][]interface{}) (int64, error) {
+func (t *Table) Inserts(columns []string, data [][]any) (int64, error) {
 	if err := t.check(); err != nil {
 		return 0, err
 	}
 
+	if len(data) <= 0 {
+		return 0, errors.New("请提供数据")
+	}
 	colLen := len(columns)
 	if colLen <= 0 {
 		return 0, errors.New("请提供字段")
@@ -154,24 +157,16 @@ func (t *Table) Inserts(columns []string, data [][]interface{}) (int64, error) {
 	}
 	qstr := "(" + strings.Join(t.buildSqlQ(len(columns)), ",") + ")"
 	qarr := []string{}
+	val := []any{}
 	for _, v := range data {
 		if colLen != len(v) {
 			return 0, errors.New("请确保column长度统一")
 		}
 		qarr = append(qarr, qstr)
-	}
-	val := []interface{}{}
-	for {
-		if len(data) > 1 {
-			break
-		}
-		d := data[0]
-		val = append(val, d...)
-		data = data[1:]
+		val = append(val, v...)
 	}
 
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s", t.table_prefix(), strings.Join(columns, ","), strings.Join(qarr, ","))
-
 	stmt, err := t.dbConn.Prepare(sql)
 	if err != nil {
 		return 0, err
@@ -347,9 +342,9 @@ func (t *Table) AscOption(ok bool, cols ...string) *Table {
 	return t
 }
 
-func (t *Table) And(cAnd string, args interface{}) *Table {
+func (t *Table) And(cAnd string, args ...interface{}) *Table {
 	t.pushConditions("AND")
-	t.pushConditions(fmt.Sprintf(cAnd, args))
+	t.pushConditions(fmt.Sprintf(cAnd, args...))
 	return t
 }
 

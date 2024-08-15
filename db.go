@@ -9,7 +9,8 @@ import (
 )
 
 var sqlx atomic.Value
-var spanName = "sql"
+
+const DEFAULT_KEY = "def"
 
 type ActionExec func(tx *Tx, args ...interface{}) (int64, error)
 
@@ -23,6 +24,7 @@ type DbConn interface {
 	TxConn
 	Connect(ctx context.Context) (DbConn, error)
 	WithContext(ctx context.Context)
+	Options() *Options
 	Ping() error
 	Conn() (*sql.DB, error)
 	Close() error
@@ -31,18 +33,13 @@ type DbConn interface {
 }
 
 type Sqlm struct {
-	opts      atomic.Value
 	dbcon     DbConn
 	LogPrefix string
 	log       StdLog
 }
 
-func (d *Sqlm) swapOpts(opts *Options) {
-	d.opts.Store(opts)
-}
-
 func (d *Sqlm) getOpts() *Options {
-	return d.opts.Load().(*Options)
+	return d.dbcon.Options()
 }
 
 func Slaver(slaver ...int) *Db {
@@ -55,7 +52,7 @@ func SlaverContext(ctx context.Context, slaver ...int) *Db {
 		pos = slaver[0]
 	}
 	dbcon := &Db{}
-	sl := getSqlx()
+	sl := getSqlx(DEFAULT_KEY)
 	dbcon.server = sl.getOpts().Slavers[pos]
 	dbcon.log = sl.getOpts().log
 	dbcon.ctx = ctx
@@ -83,7 +80,21 @@ func MasterContext(ctx context.Context) *Db {
 
 func Major(ctx context.Context) *Db {
 	dbcon := &Db{}
-	sm := getSqlx()
+	sm := getSqlx(DEFAULT_KEY)
+	dbcon.server = sm.getOpts().Server
+	dbcon.log = sm.getOpts().log
+	dbcon.ctx = ctx
+	conn, err := sm.dbcon.Connect(ctx)
+	if err != nil {
+		sm.getOpts().log.Error(err.Error())
+	}
+	dbcon.conn = conn
+	return dbcon
+}
+
+func GetInstance(ctx context.Context, name string) *Db {
+	dbcon := &Db{}
+	sm := getSqlx(name)
 	dbcon.server = sm.getOpts().Server
 	dbcon.log = sm.getOpts().log
 	dbcon.ctx = ctx
@@ -102,23 +113,56 @@ type Db struct {
 	ctx    context.Context
 }
 
-func getSqlx() *Sqlm {
-	return sqlx.Load().(*Sqlm)
+func getSqlx(name string) *Sqlm {
+	m := sqlx.Load().(map[string]*Sqlm)
+	return m[name]
 }
 
-func swapSqlx(sx *Sqlm) atomic.Value {
-	sqlx.Store(sx)
-	return sqlx
+func swapSqlx(sx *Sqlm, k string) bool {
+	m := sqlx.Load()
+	if m == nil {
+		t := make(map[string]*Sqlm)
+		t[k] = sx
+		sqlx.Store(t)
+		return true
+	}
+	r := m.(map[string]*Sqlm)
+	if _, ok := r[k]; ok {
+		return false
+	}
+	r[k] = sx
+	sqlx.Store(r)
+	return true
 }
 
-func New(opt *Options, db DbConn) atomic.Value {
+func New(opt *Options, db DbConn) bool {
 	sx := &Sqlm{
 		LogPrefix: "[sqlm] ",
 		log:       opt.log,
 	}
-	sx.swapOpts(opt)
 	sx.dbcon = db
-	return swapSqlx(sx)
+	n := opt.Name
+	if n == "" {
+		n = DEFAULT_KEY
+	}
+	return swapSqlx(sx, n)
+}
+
+func Use(dbs ...DbConn) bool {
+	for _, db := range dbs {
+		opt := db.Options()
+		sx := &Sqlm{
+			LogPrefix: "[sqlm] ",
+			log:       opt.log,
+		}
+		sx.dbcon = db
+		n := opt.Name
+		if n == "" {
+			n = DEFAULT_KEY
+		}
+		swapSqlx(sx, n)
+	}
+	return true
 }
 
 func (d *Db) Close() {
@@ -144,6 +188,18 @@ func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
 		return GetRow(rows)
 	}
 	return nil, err
+}
+
+func (m *Db) MaxId(tbl string, args ...string) sql.NullInt64 {
+	if len(args) == 0 {
+		args = append(args, "id")
+	}
+	query := fmt.Sprintf("SELECT max(%s) as id FROM %s", args[0], tbl)
+	row, err := m.Query(query)
+	if err == nil {
+		return row.Get("id").NullInt64()
+	}
+	return sql.NullInt64{Int64: 0, Valid: false}
 }
 
 func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
