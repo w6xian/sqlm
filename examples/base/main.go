@@ -116,7 +116,7 @@ func main() {
 		}
 	}
 	// 同步同步表
-	maxId := db1.MaxId("sync_tables")
+	maxId := db1.MaxId(db1.TableName("sync_tables"))
 	cols := strings.Split("id,name,pk_col,limit_num,cols,intime", ",")
 	fmt.Println(cols)
 	for _, v := range cols {

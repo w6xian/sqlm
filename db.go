@@ -181,6 +181,10 @@ func (d *Db) Table(tbl string) *Table {
 	return Tbx(d.ctx, tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable)
 }
 
+func (d *Db) TableName(tbl string) string {
+	return d.server.Pretable + tbl
+}
+
 func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
 	rows, err := d.conn.Query(query, args...)
 	if err == nil {
