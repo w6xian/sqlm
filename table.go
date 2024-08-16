@@ -2,6 +2,7 @@ package sqlm
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -392,14 +393,6 @@ func (t *Table) Or(cOr string, args ...interface{}) *Table {
 	return t
 }
 
-// func (t *Table) Max(column) string{
-//     sql = "select max(:column) from :table";
-//     return D(t.db, t.host)->GetOne(sql, array(
-//         "column" => column,
-//         "table" => t.table_prefix()
-//     ));
-// }
-
 func (t *Table) Query() (*Row, error) {
 	if err := t.check(); err != nil {
 		return nil, err
@@ -409,6 +402,18 @@ func (t *Table) Query() (*Row, error) {
 	if err == nil {
 		defer rows.Close()
 		return GetRow(rows)
+	}
+	return nil, err
+}
+func (t *Table) Rows() (*sql.Rows, error) {
+	if err := t.check(); err != nil {
+		return nil, err
+	}
+	query := t.getSql()
+	rows, err := t.dbConn.Query(query)
+	if err == nil {
+		defer rows.Close()
+		return rows, err
 	}
 	return nil, err
 }

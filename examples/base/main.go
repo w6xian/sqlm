@@ -47,6 +47,17 @@ func main() {
 	// 	fmt.Println("No city found")
 	// }
 	// os.Exit(0)
+
+	type SyncTable struct {
+		Id         int64  `json:"id"`
+		Name       string `json:"name"`
+		PkCol      string `json:"pk_col"`
+		LimitNum   int64  `json:"limit_num"`
+		PragmaData int64  `json:"pragma_data"`
+		Cols       string `json:"cols"`
+		Intime     int64  `json:"intime"`
+	}
+
 	opt, err := sqlm.NewOptionsWithServer(sqlm.Server{
 		Database:     "cloud",
 		Host:         "127.0.0.1",
@@ -78,7 +89,7 @@ func main() {
 		MaxOpenConns: 64,
 		MaxIdleConns: 64,
 		MaxLifetime:  int(time.Second) * 60,
-		DSN:          "sqlm_demo1.db", //"cloud?charset=utf8mb4&parseTime=True&loc=Local",
+		DSN:          "sqlm_demo.db", //"cloud?charset=utf8mb4&parseTime=True&loc=Local",
 	}, "sqlite")
 	if err != nil {
 		fmt.Println(err.Error())
@@ -101,6 +112,7 @@ func main() {
 		[pk_col] VARCHAR(250) NOT NULL,
 		[limit_num] INT NOT NULL,
 		[cols] VARCHAR(250) NOT NULL,
+		[pragma_data] VARCHAR(250) NOT NULL,
 		[intime] INT NOT NULL,
 		 PRIMARY KEY ([id])
 	  );
@@ -115,6 +127,11 @@ func main() {
 			return
 		}
 	}
+	v := &SyncTable{}
+	row, err := db.Table("sync_tables").Select("*").Query()
+	row.Scan(v)
+	fmt.Println(v.Id)
+	return
 	// 同步同步表
 	maxId := db1.MaxId(db1.TableName("sync_tables"))
 	cols := strings.Split("id,name,pk_col,limit_num,cols,intime", ",")
@@ -145,7 +162,7 @@ func main() {
 		}
 	}
 
-	row, err := db.Table("mall_so").Where("id=%d", 1).Query()
+	row, err = db.Table("mall_so").Where("id=%d", 1).Query()
 
 	if err != nil {
 		fmt.Println(err.Error())

@@ -17,6 +17,15 @@ func (col Column) Int() (int, error) {
 	}
 	return 0, errors.New("字段不存在")
 }
+
+func (col Column) Bool() bool {
+	if i, err := strconv.Atoi(string(col)); err == nil {
+		if i > 0 {
+			return true
+		}
+	}
+	return false
+}
 func (col Column) Int64() (int64, error) {
 	return strconv.ParseInt(string(col), 10, 64)
 }

@@ -1,13 +1,16 @@
 package sqlm
 
 import (
+	"database/sql"
 	"encoding/json"
+	"reflect"
 )
 
 type Row struct {
 	Data       [][]byte
 	ColumnName []string
 	ColumnLen  int
+	Base       *sql.Rows
 }
 
 func (r *Row) Length() int {
@@ -47,12 +50,38 @@ func (r *Row) ToString() string {
 	return r.Json()
 }
 
-func (r *Row) ToMap() map[string]interface{} {
-	js := make(map[string]interface{})
+func (r *Row) ToMap() map[string]any {
+	js := make(map[string]any)
 	for i := 0; i < r.ColumnLen; i++ {
 		js[r.ColumnName[i]] = Column(r.Data[i]).String()
 	}
 	return js
+}
+
+func (r *Row) Scan(target any) {
+	// 可能没有数据
+	if r.Length() <= 0 {
+		return
+	}
+	sVal := reflect.ValueOf(target)
+	sType := reflect.TypeOf(target)
+	if sType.Kind() == reflect.Ptr {
+		sVal = sVal.Elem()
+		sType = sType.Elem()
+	}
+	num := sVal.NumField()
+	for i := 0; i < num; i++ {
+		f := sType.Field(i)
+		val := sVal.Field(i)
+		key := f.Tag.Get("json")
+		if col := r.Get(key); col != nil {
+			// 是否支持
+			if supportedColumnType(val) {
+				setColumnValue(val, col)
+			}
+
+		}
+	}
 }
 
 func (r *Row) Type() string {
