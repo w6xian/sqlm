@@ -40,6 +40,10 @@ func (m *Mysql) Options() *sqlm.Options {
 	return m.options
 }
 
+func (m *Mysql) TableName(tbl string) string {
+	return m.options.Server.Pretable + tbl
+}
+
 func (m *Mysql) Ping() error {
 	if err := m.check(); err != nil {
 		return err

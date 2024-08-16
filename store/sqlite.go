@@ -40,6 +40,9 @@ func (m *Sqlite) Options() *sqlm.Options {
 	return m.options
 }
 
+func (m *Sqlite) TableName(tbl string) string {
+	return m.options.Server.Pretable + tbl
+}
 func (m *Sqlite) Ping() error {
 	if err := m.check(); err != nil {
 		return err

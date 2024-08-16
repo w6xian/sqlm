@@ -92,7 +92,7 @@ func Major(ctx context.Context) *Db {
 	return dbcon
 }
 
-func GetInstance(ctx context.Context, name string) *Db {
+func MewInstance(ctx context.Context, name string) *Db {
 	dbcon := &Db{}
 	sm := getSqlx(name)
 	dbcon.server = sm.getOpts().Server

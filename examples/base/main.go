@@ -90,9 +90,9 @@ func main() {
 
 	sqlm.Use(con, con1)
 
-	db := sqlm.GetInstance(context.Background(), "def")
+	db := sqlm.MewInstance(context.Background(), "def")
 	defer db.Close()
-	db1 := sqlm.GetInstance(context.Background(), "sqlite")
+	db1 := sqlm.MewInstance(context.Background(), "sqlite")
 	defer db1.Close()
 	syncTable := `
 	CREATE TABLE [mi_sync_tables] (
