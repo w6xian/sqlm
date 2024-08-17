@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 )
 
@@ -183,6 +184,16 @@ func (d *Db) Table(tbl string) *Table {
 
 func (d *Db) TableName(tbl string) string {
 	return d.server.Pretable + tbl
+}
+func (d *Db) TrimPrefix(tbl string) string {
+	return strings.TrimPrefix(tbl, d.server.Pretable)
+}
+
+func (d *Db) WithPrefix(tbl string) string {
+	if strings.HasPrefix(tbl, d.server.Pretable) {
+		return tbl
+	}
+	return d.TableName(tbl)
 }
 
 func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
