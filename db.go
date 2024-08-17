@@ -194,6 +194,19 @@ func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
 	return nil, err
 }
 
+func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
+	rows, err := d.conn.Query(query, args...)
+	if err == nil {
+		defer rows.Close()
+		return GetRows(rows)
+	}
+	return nil, err
+}
+
+func (d *Db) Rows(query string, args ...interface{}) (*sql.Rows, error) {
+	return d.conn.Query(query, args...)
+}
+
 func (m *Db) MaxId(tbl string, args ...string) sql.NullInt64 {
 	if len(args) == 0 {
 		args = append(args, "id")
@@ -204,15 +217,6 @@ func (m *Db) MaxId(tbl string, args ...string) sql.NullInt64 {
 		return row.Get("id").NullInt64()
 	}
 	return sql.NullInt64{Int64: 0, Valid: false}
-}
-
-func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
-	rows, err := d.conn.Query(query, args...)
-	if err == nil {
-		defer rows.Close()
-		return GetRows(rows)
-	}
-	return nil, err
 }
 
 func (d *Db) Exec(query string, args ...interface{}) (sql.Result, error) {

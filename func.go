@@ -5,6 +5,7 @@ import (
 )
 
 func GetRows(rows *sql.Rows) (*Rows, error) {
+	defer rows.Close()
 	columns, err := rows.Columns()
 	if err == nil {
 		collen := len(columns)
@@ -27,6 +28,7 @@ func GetRows(rows *sql.Rows) (*Rows, error) {
 }
 
 func GetRow(rows *sql.Rows) (*Row, error) {
+	defer rows.Close()
 	columns, err := rows.Columns()
 	if err == nil {
 		// 有拿到
