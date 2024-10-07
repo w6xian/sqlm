@@ -116,6 +116,9 @@ type Db struct {
 
 func getSqlx(name string) *Sqlm {
 	m := sqlx.Load().(map[string]*Sqlm)
+	if _, ok := m[name]; !ok {
+		panic(fmt.Sprintf("sqlm instance %s not found", name))
+	}
 	return m[name]
 }
 

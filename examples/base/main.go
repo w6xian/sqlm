@@ -15,6 +15,18 @@ type City struct {
 	Name string
 }
 
+type Casher struct {
+	Id           int64  `json:"id"`
+	ProxyID      int64  `json:"proxy_id"`
+	ShopId       int64  `json:"shop_id"`
+	UserId       int64  `json:"user_id"`
+	EmployeeId   int64  `json:"emp_id"`
+	EmployeeName string `json:"name"`
+	Mobile       string `json:"mobile"`
+	Avatar       string `json:"avatar"`
+	Leader       int64  `json:"is_leader"`
+}
+
 func main() {
 
 	// db, err := sql.Open("mysql", "root:1Qazxsw2@tcp(127.0.0.1:3306)/cloud")
@@ -105,32 +117,88 @@ func main() {
 	defer db.Close()
 	db1 := sqlm.MewInstance(context.Background(), "sqlite")
 	defer db1.Close()
+	// syncTable := `
+	// CREATE TABLE [mi_sync_tables] (
+	// 	[id] INTEGER AUTO_INCREMENT NULL,
+	// 	[name] VARCHAR(250) NOT NULL,
+	// 	[pk_col] VARCHAR(250) NOT NULL,
+	// 	[limit_num] INT NOT NULL,
+	// 	[cols] VARCHAR(250) NOT NULL,
+	// 	[pragma_data] VARCHAR(250) NOT NULL,
+	// 	[intime] INT NOT NULL,
+	// 	 PRIMARY KEY ([id])
+	//   );
+	//   CREATE INDEX [idx_name]
+	//   ON [mi_sync_tables] (
+	// 	[name] ASC
+	//   );
+	// `
+
 	syncTable := `
-	CREATE TABLE [mi_sync_tables] (
+	CREATE TABLE [mi_mall_temp] (
 		[id] INTEGER AUTO_INCREMENT NULL,
-		[name] VARCHAR(250) NOT NULL,
-		[pk_col] VARCHAR(250) NOT NULL,
-		[limit_num] INT NOT NULL,
-		[cols] VARCHAR(250) NOT NULL,
-		[pragma_data] VARCHAR(250) NOT NULL,
+		[proxy_id] INTEGER NOT NULL,
+		[ticket] VARCHAR(45) NOT NULL,
+		[token] VARCHAR(250) NOT NULL,
 		[intime] INT NOT NULL,
 		 PRIMARY KEY ([id])
 	  );
-	  CREATE INDEX [idx_name]
-	  ON [mi_sync_tables] (
-		[name] ASC
+	  CREATE INDEX [idx_ticket]
+	  ON [mi_mall_temp] (
+		[ticket] ASC
+	  );
+	  CREATE INDEX [idx_proxy]
+	  ON [mi_mall_temp] (
+		[proxy_id] ASC
+	  );
+	  CREATE TABLE [mi_mall_temp_items] (
+		[id] INTEGER AUTO_INCREMENT NULL,
+		[temp_id] INTEGER NOT NULL,
+		[name] VARCHAR(64) NOT NULL,
+		[sn] VARCHAR(64) NOT NULL,
+		[num]INTEGER(64) NOT NULL,
+		[price]INTEGER(64) NOT NULL,
+		[total]INTEGER(64) NOT NULL,
+		[discount]INTEGER(64) NOT NULL,
+		[payed]INTEGER(64) NOT NULL,
+		[off]INTEGER(64) NOT NULL,
+		[abatement]INTEGER(64) NOT NULL,
+		[debit]INTEGER(64) NOT NULL,
+		[intime] INT NOT NULL,
+		 PRIMARY KEY ([id])
+	  );
+	  CREATE INDEX [idx_tmp_id]
+	  ON [mi_mall_temp_items] (
+		[temp_id] ASC
 	  );
 	`
+
 	// 不存在就创建
-	if _, err := db1.Query(`SELECT * FROM sqlite_master  WHERE type='table' and name='mi_sync_tables'`); err != nil {
+	if _, err := db1.Query(`SELECT * FROM sqlite_master  WHERE type='table' and name='mi_mall_temp'`); err != nil {
 		if _, err = db1.Exec(syncTable); err != nil {
 			return
 		}
 	}
+
+	// if _, err := db1.Query(`SELECT * FROM sqlite_master  WHERE type='table' and name='mi_sync_tables'`); err != nil {
+	// 	if _, err = db1.Exec(syncTable); err != nil {
+	// 		return
+	// 	}
+	// }
+	c := &Casher{}
+	cs, err := db.Table("com_shops_cashers").Select("*").
+		Where("proxy_id=%d", 2).
+		And("mobile='%s'", "13509481132").
+		Query()
+	cs.Scan(c)
+
+	fmt.Println(c.Id, c.EmployeeId, c.EmployeeName)
+
+	return
 	v := &SyncTable{}
 	row, err := db.Table("sync_tables").Select("*").Query()
 	row.Scan(v)
-	fmt.Println(v.Id)
+	fmt.Println(v.Id, v.Name, v.Cols, v.Intime, v.LimitNum)
 	return
 	// 同步同步表
 	maxId := db1.MaxId(db1.TableName("sync_tables"))

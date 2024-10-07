@@ -6,3 +6,5 @@ images
 .vscode
 examples/base/base.exe
 examples/base/sqlm_demo.db
+*.db-wal
+*.db-shm
