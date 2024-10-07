@@ -110,12 +110,13 @@ func main() {
 	if err != nil {
 		fmt.Println("not conne", err.Error())
 	}
+	fmt.Println(con, con1)
 
-	sqlm.Use(con, con1)
+	// sqlm.Use(con, con1)
 
-	db := sqlm.MewInstance(context.Background(), "def")
+	db := sqlm.NewInstance(context.Background(), "def")
 	defer db.Close()
-	db1 := sqlm.MewInstance(context.Background(), "sqlite")
+	db1 := sqlm.NewInstance(context.Background(), "sqlite")
 	defer db1.Close()
 	// syncTable := `
 	// CREATE TABLE [mi_sync_tables] (
@@ -187,13 +188,15 @@ func main() {
 	// }
 	c := &Casher{}
 	cs, err := db.Table("com_shops_cashers").Select("*").
-		Where("proxy_id=%d", 2).
-		And("mobile='%s'", "13509481132").
+		Where("shop_id=%d", 2).
+		And("mobile='%s'", "").
 		Query()
-	cs.Scan(c)
-
-	fmt.Println(c.Id, c.EmployeeId, c.EmployeeName)
-
+	if err != nil {
+		fmt.Println(err.Error())
+	} else {
+		cs.Scan(c)
+		fmt.Println(c.Id, c.EmployeeId, c.EmployeeName)
+	}
 	return
 	v := &SyncTable{}
 	row, err := db.Table("sync_tables").Select("*").Query()

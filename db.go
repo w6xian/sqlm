@@ -93,7 +93,7 @@ func Major(ctx context.Context) *Db {
 	return dbcon
 }
 
-func MewInstance(ctx context.Context, name string) *Db {
+func NewInstance(ctx context.Context, name string) *Db {
 	dbcon := &Db{}
 	sm := getSqlx(name)
 	dbcon.server = sm.getOpts().Server
@@ -115,11 +115,15 @@ type Db struct {
 }
 
 func getSqlx(name string) *Sqlm {
-	m := sqlx.Load().(map[string]*Sqlm)
-	if _, ok := m[name]; !ok {
-		panic(fmt.Sprintf("sqlm instance %s not found", name))
+	m := sqlx.Load()
+	if m == nil {
+		panic("sqlm instance not found,pls Use sqlm.Use() before")
 	}
-	return m[name]
+	mx := m.(map[string]*Sqlm)
+	if _, ok := mx[name]; !ok {
+		panic(fmt.Sprintf("sqlm instance %s not found,pls Use sqlm.Use() before", name))
+	}
+	return mx[name]
 }
 
 func swapSqlx(sx *Sqlm, k string) bool {
