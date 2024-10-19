@@ -59,7 +59,6 @@ func CheckOption(opt *Options) (*Options, error) {
 		dbFile := fmt.Sprintf("sqlm_%s.db", opt.Mode)
 		opt.Server.DSN = filepath.Join(dataDir, dbFile)
 	}
-	opt.Version = GetCurrentVersion(opt.Mode)
 	return opt, nil
 }
 
@@ -84,10 +83,9 @@ type Options struct {
 	Slavers []Server `json:"slavers"`
 	log     StdLog
 	//
-	Conn    DbConn
-	Mode    string `json:"mode"`
-	Data    string `json:"data"`
-	Version string `json:"version"`
+	Conn DbConn
+	Mode string `json:"mode"`
+	Data string `json:"data"`
 }
 
 func (c *Options) AddSlave(svr Server) {

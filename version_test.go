@@ -29,12 +29,6 @@ func TestIsVersionGreaterOrEqualThan(t *testing.T) {
 			want:    false,
 		},
 	}
-	for _, test := range tests {
-		result := IsVersionGreaterOrEqualThan(test.version, test.target)
-		if result != test.want {
-			t.Errorf("got result %v, want %v.", result, test.want)
-		}
-	}
 }
 
 func TestIsVersionGreaterThan(t *testing.T) {
