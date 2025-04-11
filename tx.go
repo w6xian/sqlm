@@ -23,3 +23,21 @@ func (tx *Tx) Table(tbl string) *Table {
 func (tx *Tx) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return tx.db.conn.Exec(query, args...)
 }
+
+func (tx *Tx) Query(query string, args ...interface{}) (*Row, error) {
+	rows, err := tx.db.conn.Query(query, args...)
+	if err == nil {
+		defer rows.Close()
+		return GetRow(rows)
+	}
+	return nil, err
+}
+
+func (tx *Tx) QueryMulti(query string, args ...interface{}) (*Rows, error) {
+	rows, err := tx.db.conn.Query(query, args...)
+	if err == nil {
+		defer rows.Close()
+		return GetRows(rows)
+	}
+	return nil, err
+}
