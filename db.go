@@ -13,7 +13,7 @@ var sqlx atomic.Value
 
 const DEFAULT_KEY = "def"
 
-type ActionExec func(tx *Tx, args ...interface{}) (int64, error)
+type ActionExec func(tx ITable, args ...interface{}) (int64, error)
 
 type TxConn interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)

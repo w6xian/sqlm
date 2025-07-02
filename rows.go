@@ -2,6 +2,7 @@ package sqlm
 
 import (
 	"encoding/json"
+	"reflect"
 )
 
 type Rows struct {
@@ -137,4 +138,18 @@ func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
 		m[key] = value
 	}
 	return m
+}
+
+func (r *Rows) Scan(target any) []any {
+	ty := reflect.TypeOf(target)
+	if ty.Kind() == reflect.Pointer {
+		panic("use P{} not &P{}")
+	}
+	ts := []any{}
+	for _, row := range r.Lists {
+		t := reflect.New(ty).Interface()
+		row.Scan(t)
+		ts = append(ts, t)
+	}
+	return ts
 }
