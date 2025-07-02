@@ -140,7 +140,8 @@ func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
 	return m
 }
 
-func (r *Rows) Scan(target any) []any {
+// 建议用sqml.ScanMulti()
+func (r *Rows) Scan(target []any) {
 	ty := reflect.TypeOf(target)
 	if ty.Kind() == reflect.Pointer {
 		panic("use P{} not &P{}")
@@ -148,6 +149,19 @@ func (r *Rows) Scan(target any) []any {
 	ts := []any{}
 	for _, row := range r.Lists {
 		t := reflect.New(ty).Interface()
+		row.Scan(t)
+		ts = append(ts, t)
+	}
+}
+
+func ScanMulti[T comparable](rows *Rows, target T) []*T {
+	ty := reflect.TypeOf(target)
+	if ty.Kind() == reflect.Pointer {
+		panic("use P{} not &P{}")
+	}
+	ts := []*T{}
+	for _, row := range rows.Lists {
+		t := reflect.New(ty).Interface().(*T)
 		row.Scan(t)
 		ts = append(ts, t)
 	}
