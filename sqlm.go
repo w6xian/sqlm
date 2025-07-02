@@ -3,7 +3,6 @@ package sqlm
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 )
 
@@ -45,13 +44,4 @@ func Int8(value int8) int8 {
 
 func UInt8(value uint8) uint8 {
 	return value
-}
-
-func Scan[T comparable](r *Rows, target T) []T {
-	for _, row := range r.Lists {
-		t := reflect.New(ty).Interface()
-		row.Scan(t)
-		ts = append(ts, t)
-	}
-	return ts
 }

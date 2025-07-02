@@ -26,6 +26,10 @@ type Casher struct {
 	Avatar       string `json:"avatar"`
 	Leader       int64  `json:"is_leader"`
 }
+type Products struct {
+	Id   int64  `json:"prd_id"`
+	Name string `json:"name"`
+}
 
 func main() {
 
@@ -112,7 +116,7 @@ func main() {
 	}
 	fmt.Println(con, con1)
 
-	// sqlm.Use(con, con1)
+	sqlm.Use(con, con1)
 
 	db := sqlm.NewInstance(context.Background(), "def")
 	defer db.Close()
@@ -187,7 +191,7 @@ func main() {
 	// 	}
 	// }
 	c := &Casher{}
-	cs, err := db.Table("com_shops_cashers").Select("*").
+	cs, err := db.Table("com_shops_casher").Select("*").
 		Where("shop_id=%d", 2).
 		And("mobile='%s'", "").
 		Query()
@@ -197,6 +201,21 @@ func main() {
 		cs.Scan(c)
 		fmt.Println(c.Id, c.EmployeeId, c.EmployeeName)
 	}
+
+	// p := &Products{}
+	ps, err := db.Table("com_products").Select("prd_id,name").
+		Where("proxy_id=%d", 2).
+		Limit(10).
+		QueryMulti()
+	if err != nil {
+		fmt.Println(err.Error())
+	} else {
+		rst := ps.Scan(Products{})
+		for i, v := range rst {
+			fmt.Println(i, v.(*Products).Name)
+		}
+	}
+
 	return
 	v := &SyncTable{}
 	row, err := db.Table("sync_tables").Select("*").Query()
@@ -241,8 +260,8 @@ func main() {
 		fmt.Println(row.Get("com_name").String())
 	}
 
-	code, err := db.Action(func(tx *sqlm.Tx, args ...interface{}) (int64, error) {
-
+	code, err := db.Action(func(tx sqlm.ITable, args ...interface{}) (int64, error) {
+		ita(tx)
 		rows, err := tx.Table("mall_so").Select("id", "com_name").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
 		if err != nil {
 			fmt.Println(err.Error())
@@ -267,6 +286,10 @@ func main() {
 		})
 	})
 	fmt.Println(code, err)
+}
+
+func ita(sqlm.ITable) {
+	fmt.Println(1)
 }
 
 type bLog struct {
