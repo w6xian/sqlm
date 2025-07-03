@@ -9,7 +9,7 @@ func GetRows(rows *sql.Rows) (*Rows, error) {
 	columns, err := rows.Columns()
 	if err == nil {
 		collen := len(columns)
-		__c := make([]interface{}, collen)
+		__c := make([]any, collen)
 		var _rows *Rows = NewSqlxRows()
 		for rows.Next() {
 			_c := make([][]byte, collen)
@@ -34,7 +34,7 @@ func GetRow(rows *sql.Rows) (*Row, error) {
 		// 有拿到
 		if rows.Next() {
 			collen := len(columns)
-			__c := make([]interface{}, collen)
+			__c := make([]any, collen)
 			_c := make([][]byte, collen)
 			for i := 0; i < collen; i++ {
 				__c[i] = &_c[i]

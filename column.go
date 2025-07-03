@@ -41,7 +41,7 @@ func (col Column) Float64() (float64, error) {
 	return strconv.ParseFloat(string(col), 64)
 }
 
-func (col Column) Interface() interface{} {
+func (col Column) Interface() any {
 	return col
 }
 

@@ -20,15 +20,15 @@ type Driver interface {
 	check() error
 	Connect(ctx context.Context) (sqlm.DbConn, error)
 	WithContext(ctx context.Context)
-	Delete(query string, args ...interface{}) (*sql.Rows, error)
+	Delete(query string, args ...any) (*sql.Rows, error)
 	Prepare(query string) (*sql.Stmt, error)
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Insert(pTable string, columns []string, data []interface{}) (int64, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	Exec(query string, args ...any) (sql.Result, error)
+	Insert(pTable string, columns []string, data []any) (int64, error)
 	/**
 	 * 为了执行效率，请自行保证query中需要的参数个数与后面的参数中数组长度相对应
 	 */
-	Inserts(pTable string, columns []string, data [][]interface{}) (int64, error)
+	Inserts(pTable string, columns []string, data [][]any) (int64, error)
 }
 
 // NewDBDriver creates new db driver based on profile.

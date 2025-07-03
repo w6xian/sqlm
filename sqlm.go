@@ -18,7 +18,7 @@ func String(value string) string {
 	return strings.ReplaceAll(value, "'", "''")
 }
 
-func Value(value interface{}) string {
+func Value(value any) string {
 	return fmt.Sprintf("'%s'", value)
 }
 

@@ -210,9 +210,12 @@ func main() {
 	if err != nil {
 		fmt.Println(err.Error())
 	} else {
-		rst := ps.Scan(Products{})
-		for i, v := range rst {
-			fmt.Println(i, v.(*Products).Name)
+		rst := []*Products{}
+		ps.Scan(&rst, func() any {
+			return &Products{}
+		})
+		for _, v := range rst {
+			fmt.Println(v.Id, v.Name)
 		}
 	}
 
@@ -260,7 +263,7 @@ func main() {
 		fmt.Println(row.Get("com_name").String())
 	}
 
-	code, err := db.Action(func(tx sqlm.ITable, args ...interface{}) (int64, error) {
+	code, err := db.Action(func(tx sqlm.ITable, args ...any) (int64, error) {
 		ita(tx)
 		rows, err := tx.Table("mall_so").Select("id", "com_name").Where("proxy_id=%d", 2).Limit(0, 10).QueryMulti()
 		if err != nil {

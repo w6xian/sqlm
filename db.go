@@ -13,12 +13,12 @@ var sqlx atomic.Value
 
 const DEFAULT_KEY = "def"
 
-type ActionExec func(tx ITable, args ...interface{}) (int64, error)
+type ActionExec func(tx ITable, args ...any) (int64, error)
 
 type TxConn interface {
-	Exec(query string, args ...interface{}) (sql.Result, error)
+	Exec(query string, args ...any) (sql.Result, error)
 	Prepare(query string) (*sql.Stmt, error)
-	Query(query string, args ...interface{}) (*sql.Rows, error)
+	Query(query string, args ...any) (*sql.Rows, error)
 }
 
 type DbConn interface {
@@ -203,7 +203,7 @@ func (d *Db) WithPrefix(tbl string) string {
 	return d.TableName(tbl)
 }
 
-func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
+func (d *Db) Query(query string, args ...any) (*Row, error) {
 	rows, err := d.conn.Query(query, args...)
 	if err == nil {
 		defer rows.Close()
@@ -212,7 +212,7 @@ func (d *Db) Query(query string, args ...interface{}) (*Row, error) {
 	return nil, err
 }
 
-func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
+func (d *Db) QueryMulti(query string, args ...any) (*Rows, error) {
 	rows, err := d.conn.Query(query, args...)
 	if err == nil {
 		defer rows.Close()
@@ -221,7 +221,7 @@ func (d *Db) QueryMulti(query string, args ...interface{}) (*Rows, error) {
 	return nil, err
 }
 
-func (d *Db) Rows(query string, args ...interface{}) (*sql.Rows, error) {
+func (d *Db) Rows(query string, args ...any) (*sql.Rows, error) {
 	return d.conn.Query(query, args...)
 }
 
@@ -237,7 +237,7 @@ func (m *Db) MaxId(tbl string, args ...string) sql.NullInt64 {
 	return sql.NullInt64{Int64: 0, Valid: false}
 }
 
-func (d *Db) Exec(query string, args ...interface{}) (sql.Result, error) {
+func (d *Db) Exec(query string, args ...any) (sql.Result, error) {
 	return d.conn.Exec(query, args...)
 }
 

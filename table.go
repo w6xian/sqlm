@@ -11,7 +11,7 @@ import (
 	"github.com/w6xian/sqlm/utils"
 )
 
-type KeyValue map[string]interface{}
+type KeyValue map[string]any
 
 type Table struct {
 	pTable   string   `sql:"table"`
@@ -85,19 +85,19 @@ func (t *Table) table_prefix() string {
 	return t.pPre + t.pTable
 }
 
-func (t *Table) LeftJoin(tbl string, onKey string, args ...interface{}) *Table {
+func (t *Table) LeftJoin(tbl string, onKey string, args ...any) *Table {
 	return t.join("LEFT", tbl, onKey, args...)
 }
 
-func (t *Table) RightJoin(tbl string, onKey string, args ...interface{}) *Table {
+func (t *Table) RightJoin(tbl string, onKey string, args ...any) *Table {
 	return t.join("RIGHT", tbl, onKey, args...)
 }
 
-func (t *Table) InnerJoin(tbl string, onKey string, args ...interface{}) *Table {
+func (t *Table) InnerJoin(tbl string, onKey string, args ...any) *Table {
 	return t.join("INNER", tbl, onKey, args...)
 }
 
-func (t *Table) join(option string, tbl string, onKey string, args ...interface{}) *Table {
+func (t *Table) join(option string, tbl string, onKey string, args ...any) *Table {
 	t.pJoin = append(t.pJoin, fmt.Sprintf(" %s JOIN %s ON %s", option, fmt.Sprintf("%s%s", t.pPre, tbl), fmt.Sprintf(onKey, args...)))
 	return t
 }
@@ -114,12 +114,12 @@ func (t *Table) check() error {
 	return nil
 }
 
-func (t *Table) Insert(data map[string]interface{}) (int64, error) {
+func (t *Table) Insert(data map[string]any) (int64, error) {
 	if err := t.check(); err != nil {
 		return 0, err
 	}
 	columns := []string{}
-	values := []interface{}{}
+	values := []any{}
 	for c, v := range data {
 		columns = append(columns, c)
 		values = append(values, v)
@@ -214,7 +214,7 @@ func (tx *Table) AndSearchOption(ok bool, col string, value string, args ...stri
 	return tx
 }
 
-func (tx *Table) AndFilters(opts map[string]interface{}, args ...string) *Table {
+func (tx *Table) AndFilters(opts map[string]any, args ...string) *Table {
 
 	if len(args) == 0 {
 		args = append(args, "")
@@ -233,7 +233,7 @@ func (tx *Table) AndFilters(opts map[string]interface{}, args ...string) *Table 
 		}
 
 		switch val := v.(type) {
-		case []interface{}:
+		case []any:
 			l := len(val)
 			if l <= 0 {
 				continue
@@ -262,7 +262,7 @@ func (tx *Table) AndFilters(opts map[string]interface{}, args ...string) *Table 
 	return tx
 }
 
-func (t *Table) Where(cWhere string, values ...interface{}) *Table {
+func (t *Table) Where(cWhere string, values ...any) *Table {
 	t.pWhere = append(t.pWhere, fmt.Sprintf(cWhere, values...))
 	return t
 }
@@ -274,7 +274,7 @@ func (t *Table) Where(cWhere string, values ...interface{}) *Table {
  * @param mixed ...values
  * @return *Table
  */
-func (t *Table) WhereOption(ok bool, cWhere string, values ...interface{}) *Table {
+func (t *Table) WhereOption(ok bool, cWhere string, values ...any) *Table {
 	if ok {
 		t.pWhere = append(t.pWhere, fmt.Sprintf(cWhere, values...))
 	}
@@ -343,7 +343,7 @@ func (t *Table) AscOption(ok bool, cols ...string) *Table {
 	return t
 }
 
-func (t *Table) And(cAnd string, args ...interface{}) *Table {
+func (t *Table) And(cAnd string, args ...any) *Table {
 	t.pushConditions("AND")
 	t.pushConditions(fmt.Sprintf(cAnd, args...))
 	return t
@@ -378,7 +378,7 @@ func (t *Table) AndBetweenOption(ok bool, sta int, end int, column ...string) *T
 	return t
 }
 
-func (t *Table) AndOption(ok bool, cAnd string, args ...interface{}) *Table {
+func (t *Table) AndOption(ok bool, cAnd string, args ...any) *Table {
 	if ok {
 		t.pushConditions("AND")
 		t.pushConditions(fmt.Sprintf(cAnd, args...))
@@ -386,7 +386,7 @@ func (t *Table) AndOption(ok bool, cAnd string, args ...interface{}) *Table {
 	return t
 }
 
-func (t *Table) Or(cOr string, args ...interface{}) *Table {
+func (t *Table) Or(cOr string, args ...any) *Table {
 
 	t.pushConditions("OR")
 	t.pushConditions(fmt.Sprintf(cOr, args...))
@@ -563,13 +563,13 @@ func (t *Table) Delete(args ...string) *Table {
 	return t
 }
 
-func (t *Table) Set(value string, args ...interface{}) *Table {
+func (t *Table) Set(value string, args ...any) *Table {
 	t.pOption = "update_set"
 	t.pData[value] = fmt.Sprintf(value, args...)
 	return t
 }
 
-func (t *Table) Update(res map[string]interface{}) *Table {
+func (t *Table) Update(res map[string]any) *Table {
 	t.pOption = "update"
 	for k, v := range res {
 		t.pData[k] = fmt.Sprintf("`%s`='%s'", k, utils.GetString(v))
@@ -577,7 +577,7 @@ func (t *Table) Update(res map[string]interface{}) *Table {
 	return t
 }
 
-func (t *Table) SetOption(yep bool, value string, args ...interface{}) *Table {
+func (t *Table) SetOption(yep bool, value string, args ...any) *Table {
 	if yep {
 		t.pOption = "update_set"
 		t.pData[value] = fmt.Sprintf(value, args...)

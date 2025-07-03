@@ -21,7 +21,7 @@ func RandBytes(size int) []byte {
 	return buf
 }
 
-func DeepCopy(dst, src interface{}) error {
+func DeepCopy(dst, src any) error {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(src); err != nil {
 		return err
@@ -29,12 +29,12 @@ func DeepCopy(dst, src interface{}) error {
 	return gob.NewDecoder(bytes.NewBuffer(buf.Bytes())).Decode(dst)
 }
 
-func Copy(dst, src interface{}) {
+func Copy(dst, src any) {
 	aj, _ := json.Marshal(src)
 	_ = json.Unmarshal(aj, dst)
 }
 
-func GetInt64(val interface{}) int64 {
+func GetInt64(val any) int64 {
 	switch value := val.(type) {
 	case string:
 		val, err := strconv.ParseInt(value, 10, 64)
@@ -74,7 +74,7 @@ func GetFloat64(value string) float64 {
 	return val
 }
 
-func GetString(value interface{}) string {
+func GetString(value any) string {
 	var key string
 	if value == nil {
 		return key

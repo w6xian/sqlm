@@ -101,7 +101,7 @@ func (m *Mysql) WithContext(ctx context.Context) {
 	m.ctx = ctx
 }
 
-func (m *Mysql) Delete(query string, args ...interface{}) (*sql.Rows, error) {
+func (m *Mysql) Delete(query string, args ...any) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
 		return nil, errors.New("does not connected")
 	}
@@ -114,14 +114,14 @@ func (m *Mysql) Prepare(query string) (*sql.Stmt, error) {
 	}
 	return m.connection.PrepareContext(m.ctx, query)
 }
-func (m *Mysql) Query(query string, args ...interface{}) (*sql.Rows, error) {
+func (m *Mysql) Query(query string, args ...any) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
 	return m.connection.QueryContext(m.ctx, query, args...)
 }
 
-func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
+func (m *Mysql) Exec(query string, args ...any) (sql.Result, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (m *Mysql) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return rst, nil
 }
 
-func (m *Mysql) Insert(pTable string, columns []string, data []interface{}) (int64, error) {
+func (m *Mysql) Insert(pTable string, columns []string, data []any) (int64, error) {
 	if len(columns) != len(data) {
 		return 0, errors.New("请确保column长度统一")
 	}
@@ -164,7 +164,7 @@ func (m *Mysql) Insert(pTable string, columns []string, data []interface{}) (int
 /**
  * 为了执行效率，请自行保证query中需要的参数个数与后面的参数中数组长度相对应
  */
-func (m *Mysql) Inserts(pTable string, columns []string, data [][]interface{}) (int64, error) {
+func (m *Mysql) Inserts(pTable string, columns []string, data [][]any) (int64, error) {
 
 	if err := m.check(); err != nil {
 		return 0, err
@@ -185,7 +185,7 @@ func (m *Mysql) Inserts(pTable string, columns []string, data [][]interface{}) (
 		}
 		qarr = append(qarr, qstr)
 	}
-	val := []interface{}{}
+	val := []any{}
 	for {
 		if len(data) > 1 {
 			break

@@ -68,8 +68,8 @@ func (rs *Rows) Append(row Row) []*Row {
 	return rs.Lists
 }
 
-func (rs *Rows) Map(call func(res *Row, idx int) interface{}) []interface{} {
-	var copy []interface{} = []interface{}{}
+func (rs *Rows) Map(call func(res *Row, idx int) any) []any {
+	var copy []any = []any{}
 	for k, v := range rs.Lists {
 		copy = append(copy, call(v, k))
 	}
@@ -94,7 +94,7 @@ func (rs *Rows) Get(key string) Column {
 }
 
 func (r *Rows) Json() string {
-	s := []map[string]interface{}{}
+	s := []map[string]any{}
 	for _, row := range r.Lists {
 		s = append(s, row.ToMap())
 	}
@@ -109,12 +109,12 @@ func (r *Rows) Type() string {
 	return "array"
 }
 
-func (r *Rows) ToMap() map[string]interface{} {
+func (r *Rows) ToMap() map[string]any {
 	return r.Row().ToMap()
 }
 
-func (r *Rows) ToArray() []map[string]interface{} {
-	s := []map[string]interface{}{}
+func (r *Rows) ToArray() []map[string]any {
+	s := []map[string]any{}
 	for _, row := range r.Lists {
 		s = append(s, row.ToMap())
 	}
@@ -141,16 +141,22 @@ func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
 }
 
 // 建议用sqml.ScanMulti()
-func (r *Rows) Scan(target []any) {
+func (r *Rows) Scan(target any, f func() any) {
 	ty := reflect.TypeOf(target)
-	if ty.Kind() == reflect.Pointer {
-		panic("use P{} not &P{}")
+	val := reflect.ValueOf(target).Elem()
+	if ty.Kind() != reflect.Pointer {
+		panic("Scan use &[]T{}  not []T{}")
 	}
-	ts := []any{}
-	for _, row := range r.Lists {
-		t := reflect.New(ty).Interface()
+	ty = ty.Elem()
+	if ty.Kind() != reflect.Slice {
+		panic("Scan use *[]T{}  not []T{}")
+	}
+
+	val.Set(reflect.MakeSlice(ty, r.Length(), r.Length()))
+	for i, row := range r.Lists {
+		t := f()
 		row.Scan(t)
-		ts = append(ts, t)
+		val.Index(i).Set(reflect.ValueOf(t))
 	}
 }
 
