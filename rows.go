@@ -140,7 +140,11 @@ func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
 	return m
 }
 
-// 建议用sqml.ScanMulti()
+// 扫描多行数据到目标对象
+//
+//	rows.Scan(&rst, func() any {
+//		return &Products{}
+//	})
 func (r *Rows) Scan(target any, f func() any) {
 	ty := reflect.TypeOf(target)
 	val := reflect.ValueOf(target).Elem()

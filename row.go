@@ -58,6 +58,10 @@ func (r *Row) ToMap() map[string]any {
 	return js
 }
 
+// 结果直接转结构体,请在Tag里用`json:"id"`绑定数据列名称。
+//
+//	rst:=&T{}
+//	row.Scan(rst)
 func (r *Row) Scan(target any) {
 	// 可能没有数据
 	if r.Length() <= 0 {

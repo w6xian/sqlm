@@ -220,8 +220,8 @@ func main() {
 	}
 
 	return
-	v := &SyncTable{}
 	row, err := db.Table("sync_tables").Select("*").Query()
+	v := &SyncTable{}
 	row.Scan(v)
 	fmt.Println(v.Id, v.Name, v.Cols, v.Intime, v.LimitNum)
 	return
