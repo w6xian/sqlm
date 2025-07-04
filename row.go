@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
+	"strings"
 )
 
 type Row struct {
@@ -17,6 +18,8 @@ func (r *Row) Length() int {
 	return len(r.Data)
 }
 func (r *Row) getIdx(key string) int {
+	keys := strings.Split(key, ",")
+	key = keys[0]
 	for i := 0; i < r.ColumnLen; i++ {
 		if key == r.ColumnName[i] {
 			return i
@@ -83,7 +86,6 @@ func (r *Row) Scan(target any) {
 			if supportedColumnType(val) {
 				setColumnValue(val, col)
 			}
-
 		}
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ type Casher struct {
 	Leader       int64  `json:"is_leader"`
 }
 type Products struct {
-	Id   int64  `json:"prd_id"`
+	Id   int64  `json:"prd_id,omitempty" ignore:"api"`
 	Name string `json:"name"`
 }
 
@@ -217,6 +218,9 @@ func main() {
 		for _, v := range rst {
 			fmt.Println(v.Id, v.Name)
 		}
+		sqlm.Ignore(&rst)
+		r, err := json.Marshal(rst)
+		fmt.Println(string(r), err)
 	}
 
 	return
