@@ -23,7 +23,7 @@ type Casher struct {
 	UserId       int64  `json:"user_id"`
 	EmployeeId   int64  `json:"emp_id"`
 	EmployeeName string `json:"name"`
-	Mobile       string `json:"mobile"`
+	Mobile       string `json:"mobile" ignore:"io"`
 	Avatar       string `json:"avatar"`
 	Leader       int64  `json:"is_leader"`
 }

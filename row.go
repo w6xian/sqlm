@@ -81,6 +81,15 @@ func (r *Row) Scan(target any) {
 		f := sType.Field(i)
 		val := sVal.Field(i)
 		key := f.Tag.Get("json")
+		if v, ok := f.Tag.Lookup("ignore"); ok {
+			if len(v) <= 2 {
+				io := strings.Split(v, "")
+				if io[0] == "i" || io[1] == "i" {
+					continue
+				}
+			}
+		}
+
 		if col := r.Get(key); col != nil {
 			// 是否支持
 			if supportedColumnType(val) {
