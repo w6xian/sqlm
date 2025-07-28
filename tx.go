@@ -3,6 +3,8 @@ package sqlm
 import (
 	"context"
 	"database/sql"
+
+	"github.com/w6xian/sqlm/utils"
 )
 
 type Tx struct {
@@ -17,7 +19,8 @@ func (tx *Tx) Use(dbc TxConn) {
 
 func (tx *Tx) Table(tbl string) *Table {
 	svr := tx.db.server
-	return Tbx(tx.ctx, tbl).UseLog(tx.db.log).Use(tx.db).UseConn(tx.connection).PreTable(svr.Pretable)
+	protocol := utils.GetOrDefault(svr.Protocol, MYSQL)
+	return Tbx(tx.ctx, tbl).UseLog(tx.db.log).Use(tx.db).UseConn(tx.connection).PreTable(svr.Pretable).SetProtocol(protocol)
 }
 
 func (tx *Tx) Exec(query string, args ...any) (sql.Result, error) {

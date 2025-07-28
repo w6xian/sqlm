@@ -21,6 +21,7 @@ type Table struct {
 	pOrderD  []string `sql:"order by cols desc"`
 	pOrderA  []string `sql:"order by cols asc"`
 	pLimit   []int64  `sql:"limit"`
+	pOffset  []int64  `sql:"offset"`
 	pColumns []string
 	pData    map[string]string
 	pOption  string
@@ -29,6 +30,7 @@ type Table struct {
 	multi    bool
 	dbConn   TxConn
 	pPre     string
+	protocol string
 	db       *Db
 	log      StdLog
 	ctx      context.Context
@@ -47,11 +49,17 @@ func NewTableWithContext(ctx context.Context, tle string) *Table {
 	pt.pTable = tle
 	pt.pPre = ""
 	pt.ctx = ctx
+	pt.protocol = MYSQL
 	return pt
 }
 
 func (t *Table) PreTable(pre string) *Table {
 	t.pPre = pre
+	return t
+}
+
+func (t *Table) SetProtocol(protocol string) *Table {
+	t.protocol = protocol
 	return t
 }
 
@@ -111,6 +119,14 @@ func (t *Table) check() error {
 	if t.dbConn == nil {
 		return errors.New("请调用UseConn方法后再执行")
 	}
+	db, err := t.db.conn.Conn()
+	if err != nil {
+		return err
+	}
+	if err = db.Ping(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -395,6 +411,7 @@ func (t *Table) Or(cOr string, args ...any) *Table {
 
 func (t *Table) Query() (*Row, error) {
 	if err := t.check(); err != nil {
+		fmt.Println(err.Error())
 		return nil, err
 	}
 	query := t.getSql()
@@ -403,6 +420,7 @@ func (t *Table) Query() (*Row, error) {
 		defer rows.Close()
 		return GetRow(rows)
 	}
+	t.db.Close()
 	return nil, err
 }
 func (t *Table) Rows() (*sql.Rows, error) {
@@ -444,22 +462,7 @@ func (t *Table) LockOption(lock bool) *Table {
 }
 
 func (t *Table) Limit(pos int64, num ...int64) *Table {
-	var numb int64 = 0
-	if len(num) > 0 {
-		numb = num[0]
-	}
-	if pos+numb == 0 {
-		return t
-	}
-	if pos <= 0 {
-		pos = 0
-	}
-	if numb <= 0 {
-		t.pLimit = []int64{pos}
-	} else {
-		t.pLimit = []int64{pos, numb}
-	}
-	return t
+	return t.LimitOption(true, pos, num...)
 }
 
 func (t *Table) LimitOption(ok bool, pos int64, num ...int64) *Table {
@@ -471,10 +474,48 @@ func (t *Table) LimitOption(ok bool, pos int64, num ...int64) *Table {
 		if pos <= 0 {
 			pos = 0
 		}
+		if t.protocol == SQLITE {
+			if numb <= 0 {
+				t.pOffset = []int64{numb}
+			} else {
+				t.pOffset = []int64{numb, pos * numb}
+			}
+			return t
+		}
 		if numb <= 0 {
 			t.pLimit = []int64{pos}
 		} else {
 			t.pLimit = []int64{pos, numb}
+		}
+	}
+	return t
+}
+
+func (t *Table) LimitOffset(num int64, offset ...int64) *Table {
+	return t.LimitOffsetOption(true, num, offset...)
+}
+
+func (t *Table) LimitOffsetOption(ok bool, num int64, offset ...int64) *Table {
+	if ok {
+		var numb int64 = 0
+		if len(offset) > 0 {
+			numb = offset[0]
+		}
+		if num <= 0 {
+			num = 0
+		}
+		if t.protocol == MYSQL {
+			if numb <= 0 {
+				t.pLimit = []int64{num}
+			} else {
+				t.pLimit = []int64{numb / num, num}
+			}
+			return t
+		}
+		if numb <= 0 {
+			t.pOffset = []int64{num}
+		} else {
+			t.pOffset = []int64{num, numb}
 		}
 	}
 	return t
@@ -503,12 +544,22 @@ func (t *Table) getSql() string {
 	} else if len(t.pOrderD) > 0 {
 		sql = sql + " ORDER BY " + strings.Join(t.pOrderD, ",") + " DESC"
 	}
-	if len(t.pLimit) == 1 {
-		sql = sql + " LIMIT " + strconv.FormatInt(t.pLimit[0], 10)
+	if len(t.pLimit) > 0 {
+		if len(t.pLimit) == 1 {
+			sql = sql + " LIMIT " + strconv.FormatInt(t.pLimit[0], 10)
+		}
+		if len(t.pLimit) == 2 {
+			sql = sql + fmt.Sprintf(" LIMIT %d,%d", t.pLimit[0], t.pLimit[1])
+		}
+	} else if len(t.pOffset) > 0 {
+		if len(t.pOffset) == 1 {
+			sql = sql + fmt.Sprintf(" LIMIT %d", t.pOffset[0])
+		}
+		if len(t.pOffset) == 2 {
+			sql = sql + fmt.Sprintf(" LIMIT %d OFFSET %d", t.pOffset[0], t.pOffset[1])
+		}
 	}
-	if len(t.pLimit) == 2 {
-		sql = sql + fmt.Sprintf(" LIMIT %d,%d", t.pLimit[0], t.pLimit[1])
-	}
+
 	if len(t.pLock) > 0 {
 		sql = sql + t.pLock
 	}
@@ -600,12 +651,13 @@ func (t *Table) Execute() (int64, error) {
 	option := t.pOption
 	sql := ""
 	where := strings.Join(t.pWhere, " ")
-	if option == "update_set" || option == "update" {
+	switch option {
+	case "update_set", "update":
 		if len(where) <= 0 {
 			panic("sql set | Update 中需要设置Where条件")
 		}
 		sql = fmt.Sprintf("UPDATE %s SET %s WHERE %s", t.table_prefix(), strings.Join(t.getUpdateData(), ","), where)
-	} else if option == "delete" {
+	case "delete":
 		if len(where) <= 0 {
 			panic("sql Delete 中需要设置Where条件")
 		}
@@ -614,6 +666,7 @@ func (t *Table) Execute() (int64, error) {
 	if len(sql) <= 0 {
 		panic("sql Execute 中需要操作")
 	}
+	t.log.Debug(sql)
 	stmt, err := t.dbConn.Prepare(sql)
 	if err != nil {
 		return 0, err

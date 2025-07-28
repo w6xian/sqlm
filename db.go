@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+
+	"github.com/w6xian/sqlm/utils"
 )
 
 var sqlx atomic.Value
@@ -186,7 +188,8 @@ func (d *Db) Close() {
 
 func (d *Db) Table(tbl string) *Table {
 	svr := d.server
-	return Tbx(d.ctx, tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable)
+	protocal := utils.GetOrDefault(svr.Protocol, MYSQL)
+	return Tbx(d.ctx, tbl).UseLog(d.log).Use(d).PreTable(svr.Pretable).SetProtocol(protocal)
 }
 
 func (d *Db) TableName(tbl string) string {

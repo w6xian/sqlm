@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -142,4 +143,33 @@ func CheckDataDir(dataDir string) (string, error) {
 	}
 
 	return dataDir, nil
+}
+
+func IsEmpty(value any) bool {
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.String:
+		return v.Len() == 0
+	case reflect.Ptr, reflect.Slice, reflect.Map:
+		return v.IsNil()
+	case reflect.Struct:
+		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
+	default:
+		return false
+	}
+}
+
+func GetOrDefault[T any](v T, def T) T {
+	if IsEmpty(v) {
+		return def
+	}
+	return v
 }
