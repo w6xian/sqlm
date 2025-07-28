@@ -1,6 +1,9 @@
 package sqlm
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 func Rows2MapRow(rows *Rows, col string) map[string]*Row {
 	rst := make(map[string]*Row)
@@ -15,4 +18,8 @@ func Rows2MapRow(rows *Rows, col string) map[string]*Row {
 func UnixTime() int64 {
 	t := time.Now()
 	return t.Unix()
+}
+
+func Alias(table, alias string) string {
+	return fmt.Sprintf("%s %s", table, alias)
 }
