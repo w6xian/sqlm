@@ -2,6 +2,7 @@ package sqlm
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 )
 
@@ -145,15 +146,15 @@ func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
 //	rows.Scan(&rst, func() any {
 //		return &Products{}
 //	})
-func (r *Rows) Scan(target any, f func() any) {
+func (r *Rows) Scan(target any, f func() any) error {
 	ty := reflect.TypeOf(target)
 	val := reflect.ValueOf(target).Elem()
 	if ty.Kind() != reflect.Pointer {
-		panic("Scan use &[]T{}  not []T{}")
+		return errors.New("Scan use &[]T{}  not []T{}")
 	}
 	ty = ty.Elem()
 	if ty.Kind() != reflect.Slice {
-		panic("Scan use *[]T{}  not []T{}")
+		return errors.New("Scan use *[]T{}  not []T{}")
 	}
 
 	val.Set(reflect.MakeSlice(ty, r.Length(), r.Length()))
@@ -162,6 +163,7 @@ func (r *Rows) Scan(target any, f func() any) {
 		row.Scan(t)
 		val.Index(i).Set(reflect.ValueOf(t))
 	}
+	return nil
 }
 
 func ScanMulti[T comparable](rows *Rows, target T) []*T {

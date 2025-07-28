@@ -3,6 +3,7 @@ package sqlm
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 )
@@ -65,10 +66,10 @@ func (r *Row) ToMap() map[string]any {
 //
 //	rst:=&T{}
 //	row.Scan(rst)
-func (r *Row) Scan(target any) {
+func (r *Row) Scan(target any) error {
 	// 可能没有数据
 	if r.Length() <= 0 {
-		return
+		return errors.New("no data")
 	}
 	sVal := reflect.ValueOf(target)
 	sType := reflect.TypeOf(target)
@@ -97,6 +98,7 @@ func (r *Row) Scan(target any) {
 			}
 		}
 	}
+	return nil
 }
 
 func (r *Row) Type() string {
