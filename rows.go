@@ -146,7 +146,7 @@ func (r *Rows) ToKeyValueMap(keyCol, valueCol string) map[string]Column {
 //	rows.Scan(&rst, func() any {
 //		return &Products{}
 //	})
-func (r *Rows) Scan(target any, f func() any) error {
+func (r *Rows) Scan(target any, f func(*Row) any) error {
 	ty := reflect.TypeOf(target)
 	val := reflect.ValueOf(target).Elem()
 	if ty.Kind() != reflect.Pointer {
@@ -159,7 +159,7 @@ func (r *Rows) Scan(target any, f func() any) error {
 
 	val.Set(reflect.MakeSlice(ty, r.Length(), r.Length()))
 	for i, row := range r.Lists {
-		t := f()
+		t := f(row)
 		row.Scan(t)
 		val.Index(i).Set(reflect.ValueOf(t))
 	}
