@@ -264,12 +264,12 @@ func (tx *Table) AndFilters(opts map[string]any, args ...string) *Table {
 				}
 				tx.pushConditions(fmt.Sprintf("%s%s in (%s)", alias, k, strings.Join(strs, ",")))
 			}
-		case string:
-			tx.pushConditions("AND")
-			tx.pushConditions(fmt.Sprintf("%s%s='%s'", alias, k, val))
-		case float64:
+		case float64, float32:
 			tx.pushConditions("AND")
 			tx.pushConditions(fmt.Sprintf("%s%s=%f", alias, k, val))
+		case int, int8, int16, int32, int64, uint, uint16, uint32, uint64, byte:
+			tx.pushConditions("AND")
+			tx.pushConditions(fmt.Sprintf("%s%s=%d", alias, k, val))
 		default:
 			fmt.Printf("\r\n%v\r\n", val)
 			continue
