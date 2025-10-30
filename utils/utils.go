@@ -173,3 +173,44 @@ func GetOrDefault[T any](v T, def T) T {
 	}
 	return v
 }
+
+// sql格式化 根据数据类型替换"?", 字符串类型会自动添加单引号, 数字类型直接替换
+// 示例: SqlFilter("select * from table where id = ? and name = ?", 1, "张三")
+// 结果: select * from table where id = 1 and name = '张三'
+func SqlParse(str string, values ...any) string {
+	var result string
+	var valueIndex int
+	for i := 0; i < len(str); i++ {
+		if str[i] == '?' && valueIndex < len(values) {
+			// 找到问号占位符，需要替换
+			switch v := values[valueIndex].(type) {
+			case string:
+				// 字符串类型，添加单引号并转义内部的单引号
+				escaped := ""
+				for _, ch := range v {
+					if ch == '\'' {
+						escaped += "''"
+					} else {
+						escaped += string(ch)
+					}
+				}
+				result += "'" + escaped + "'"
+			case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+				// 数字类型，直接转换为字符串
+				result += GetString(v)
+			case nil:
+				// nil值转换为NULL
+				result += "NULL"
+			default:
+				// 其他类型，转换为字符串并添加单引号
+				result += "'" + GetString(v) + "'"
+			}
+			valueIndex++
+		} else {
+			// 复制原字符
+			result += string(str[i])
+		}
+	}
+
+	return result
+}
