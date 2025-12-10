@@ -8,3 +8,4 @@ examples/base/base.exe
 examples/base/sqlm_demo.db
 *.db-wal
 *.db-shm
+sqlm_demo.db

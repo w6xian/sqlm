@@ -166,6 +166,28 @@ func (r *Rows) Scan(target any, f func(*Row) any) error {
 	return nil
 }
 
+// 扫描多行数据到目标对象
+//
+//	rst := []*TestRequest{}
+//	rst := []TestRequest{}
+//	rows.ScanMulti(&rst)
+func (r *Rows) ScanMulti(target any) error {
+	ty := reflect.TypeOf(target)
+	tv := reflect.ValueOf(target).Elem()
+	if ty.Kind() == reflect.Pointer {
+		ty = ty.Elem()
+	}
+	tv.Set(reflect.MakeSlice(ty, r.Length(), r.Length()))
+	sliceType := reflect.TypeOf(tv.Index(0).Interface())
+	for i, row := range r.Lists {
+		t := reflect.New(sliceType)
+		row.Scan(t.Interface())
+		tv.Index(i).Set(reflect.ValueOf(t.Elem().Interface()))
+
+	}
+	return nil
+}
+
 func ScanMulti[T comparable](rows *Rows, target T) []*T {
 	ty := reflect.TypeOf(target)
 	if ty.Kind() == reflect.Pointer {
