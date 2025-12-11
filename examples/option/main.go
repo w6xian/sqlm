@@ -54,6 +54,15 @@ func main() {
 		Limit(10).
 		Scan(&p)
 	fmt.Println("ScanMulti slice:", p)
+	count := struct {
+		Total int64 `json:"total"`
+	}{}
+	fmt.Println("----------------")
+	db.Table("com_products").
+		Count().
+		Where("proxy_id=%d", 2).
+		Scan(&count)
+	fmt.Println("Scan count:", count.Total)
 }
 
 func ita(sqlm.ITable) {
