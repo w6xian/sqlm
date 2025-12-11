@@ -1,1 +1,1 @@
-sqlm
+sqlm is a simple and fast sql mapper for golang.

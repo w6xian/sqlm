@@ -3,6 +3,7 @@ package sqlm
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 )
 
@@ -171,7 +172,12 @@ func (r *Rows) Scan(target any, f func(*Row) any) error {
 //	rst := []*TestRequest{}
 //	rst := []TestRequest{}
 //	rows.ScanMulti(&rst)
-func (r *Rows) ScanMulti(target any) error {
+func (r *Rows) ScanMulti(target any) (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("ScanMulti recover: %v", e)
+		}
+	}()
 	ty := reflect.TypeOf(target)
 	tv := reflect.ValueOf(target).Elem()
 	if ty.Kind() == reflect.Pointer {
@@ -179,10 +185,17 @@ func (r *Rows) ScanMulti(target any) error {
 	}
 	tv.Set(reflect.MakeSlice(ty, r.Length(), r.Length()))
 	sliceType := reflect.TypeOf(tv.Index(0).Interface())
+	isNeedPtr := sliceType.Kind() == reflect.Pointer
+	if isNeedPtr {
+		sliceType = sliceType.Elem()
+	}
 	for i, row := range r.Lists {
 		t := reflect.New(sliceType)
 		row.Scan(t.Interface())
-		tv.Index(i).Set(reflect.ValueOf(t.Elem().Interface()))
+		if !isNeedPtr {
+			t = t.Elem()
+		}
+		tv.Index(i).Set(reflect.ValueOf(t.Interface()))
 
 	}
 	return nil

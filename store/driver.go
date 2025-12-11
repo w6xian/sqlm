@@ -53,3 +53,25 @@ func NewDriver(opt *sqlm.Options) (Driver, error) {
 	}
 	return driver, nil
 }
+
+func NewDefaultDriver(opts ...sqlm.ServerOption) (Driver, error) {
+	var driver Driver
+	var err error
+	opt := sqlm.NewDefaultOptions(opts...)
+	opt, err = sqlm.CheckOption(opt)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create check options")
+	}
+	switch opt.Server.Protocol {
+	case "sqlite":
+		driver, err = NewSqlite(opt)
+	case "mysql":
+		driver, err = NewMysql(opt)
+	default:
+		return nil, errors.New("unknown db driver")
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create db driver")
+	}
+	return driver, nil
+}

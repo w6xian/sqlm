@@ -5,16 +5,62 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/w6xian/sqlm/utils"
 )
 
-func NewOptions() *Options {
-	opts := &Options{}
-	opt := Server{}
-	opts.Server = opt
-	opts.log = &baseLog{Level: 9}
-	return opts
+type Option func(o *Options)
+
+func WithName(name string) Option {
+	return func(o *Options) {
+		o.Name = name
+	}
+}
+
+func WithLogger(logger StdLog) Option {
+	return func(o *Options) {
+		o.log = logger
+	}
+}
+
+func WithMysqlServer(opts ...ServerOption) Option {
+	return func(o *Options) {
+		o.Server.Protocol = "mysql"
+		o.Server.Host = "127.0.0.1"
+		o.Server.Port = 3306
+		o.Server.Username = "root"
+		o.Server.Password = ""
+		o.Server.Charset = "utf8mb4"
+		o.Server.Pretable = "mi_"
+		o.Server.MaxOpenConns = 100
+		o.Server.MaxIdleConns = 10
+		o.Server.MaxLifetime = int(time.Minute)
+		for _, opt := range opts {
+			opt(o.Server)
+		}
+	}
+}
+
+func NewOptions(opts ...ServerOption) *Options {
+	options := &Options{}
+	options.Name = DEFAULT_KEY
+	options.Server = newDefaultMysqlServer()
+	options.log = &baseLog{Level: 9}
+	for _, o := range opts {
+		o(options.Server)
+	}
+	return options
+}
+func NewDefaultOptions(opts ...ServerOption) *Options {
+	options := &Options{}
+	options.Name = DEFAULT_KEY
+	options.Server = newDefaultMysqlServer()
+	options.log = &baseLog{Level: 9}
+	for _, o := range opts {
+		o(options.Server)
+	}
+	return options
 }
 
 func NewOptionsWithServer(profile Server, args ...string) (*Options, error) {
@@ -23,7 +69,7 @@ func NewOptionsWithServer(profile Server, args ...string) (*Options, error) {
 	}
 	opts := &Options{}
 	opts.Name = args[0]
-	opts.Server = profile
+	opts.Server = &profile
 	opts.log = &baseLog{Level: 9}
 	return opts, nil
 }
@@ -78,9 +124,9 @@ type Server struct {
 }
 
 type Options struct {
-	Name    string   `json:"name"`
-	Server  Server   `json:"server"`
-	Slavers []Server `json:"slavers"`
+	Name    string    `json:"name"`
+	Server  *Server   `json:"server"`
+	Slavers []*Server `json:"slavers"`
 	log     StdLog
 	//
 	Conn DbConn
@@ -88,7 +134,7 @@ type Options struct {
 	Data string `json:"data"`
 }
 
-func (c *Options) AddSlave(svr Server) {
+func (c *Options) AddSlave(svr *Server) {
 	c.Slavers = append(c.Slavers, svr)
 }
 
@@ -106,6 +152,26 @@ func (p *Options) IsDev() bool {
 }
 
 func NewServer() *Server {
-	svr := &Server{}
-	return svr
+	return &Server{}
+}
+
+func newDefaultMysqlServer(opts ...ServerOption) *Server {
+	s := &Server{
+		Database:     "cloud",
+		Host:         "127.0.0.1",
+		Port:         3306,
+		Protocol:     "mysql",
+		Username:     "root",
+		Password:     "",
+		Pretable:     "mi_",
+		Charset:      "utf8mb4",
+		MaxOpenConns: 64,
+		MaxIdleConns: 64,
+		MaxLifetime:  int(time.Second) * 60,
+		DSN:          "sqlm_demo.db", //"cloud?charset=utf8mb4&parseTime=True&loc=Local",
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }

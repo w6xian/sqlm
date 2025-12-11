@@ -24,7 +24,7 @@ type Mysql struct {
 }
 
 func NewMysql(opt *sqlm.Options) (Driver, error) {
-	return &Mysql{options: opt, conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
+	return &Mysql{options: opt, conf: opt.Server, log: opt.GetLogger(), isConnected: false}, nil
 
 }
 

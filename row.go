@@ -101,6 +101,33 @@ func (r *Row) Scan(target any) error {
 	return nil
 }
 
+func (r *Row) ScanMulti(target any) (err error) {
+
+	ty := reflect.TypeOf(target)
+	if ty.Kind() != reflect.Pointer {
+		return errors.New("target must be pointer")
+	}
+	tv := reflect.ValueOf(target).Elem()
+	ty = ty.Elem()
+	if ty.Kind() == reflect.Slice {
+		tv.Set(reflect.MakeSlice(ty, 1, 1))
+		sliceType := reflect.TypeOf(tv.Index(0).Interface())
+		isNeedPtr := sliceType.Kind() == reflect.Pointer
+		if isNeedPtr {
+			sliceType = sliceType.Elem()
+		}
+		t := reflect.New(sliceType)
+		r.Scan(t.Interface())
+		if !isNeedPtr {
+			t = t.Elem()
+		}
+		tv.Index(0).Set(reflect.ValueOf(t.Interface()))
+		return nil
+	}
+	r.Scan(target)
+	return nil
+}
+
 func (r *Row) Type() string {
 	return "map"
 }

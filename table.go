@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -146,10 +147,14 @@ func (t *Table) Insert(data map[string]any) (int64, error) {
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", t.table_prefix(), strings.Join(columns, ","), strings.Join(t.buildSqlQ(len(values)), ","))
 
 	stmt, err := t.dbConn.Prepare(sql)
+	defer func() {
+		if stmt != nil {
+			stmt.Close()
+		}
+	}()
 	if err != nil {
 		return 0, err
 	}
-	defer stmt.Close()
 	rst, err := stmt.ExecContext(t.ctx, values...)
 	if err != nil {
 		return 0, err
@@ -185,10 +190,14 @@ func (t *Table) Inserts(columns []string, data [][]any) (int64, error) {
 
 	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s", t.table_prefix(), strings.Join(columns, ","), strings.Join(qarr, ","))
 	stmt, err := t.dbConn.Prepare(sql)
+	defer func() {
+		if stmt != nil {
+			stmt.Close()
+		}
+	}()
 	if err != nil {
 		return 0, err
 	}
-	defer stmt.Close()
 	rst, err := stmt.Exec(val...)
 	if err != nil {
 		return 0, err
@@ -419,10 +428,15 @@ func (t *Table) Query() (*Row, error) {
 	}
 	query := t.getSql()
 	rows, err := t.dbConn.Query(query)
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 	if err == nil {
-		defer rows.Close()
 		return GetRow(rows)
 	}
+	// 出错后，主动关闭数据库连接
 	t.db.Close()
 	return nil, err
 }
@@ -432,10 +446,16 @@ func (t *Table) Rows() (*sql.Rows, error) {
 	}
 	query := t.getSql()
 	rows, err := t.dbConn.Query(query)
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 	if err == nil {
-		defer rows.Close()
 		return rows, err
 	}
+	// 出错后，主动关闭数据库连接
+	t.db.Close()
 	return nil, err
 }
 
@@ -445,11 +465,57 @@ func (t *Table) QueryMulti() (*Rows, error) {
 	}
 	query := t.getSql()
 	rows, err := t.dbConn.Query(query)
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 	if err == nil {
-		defer rows.Close()
 		return GetRows(rows)
 	}
+	// 出错后，主动关闭数据库连接
+	t.db.Close()
 	return nil, err
+}
+
+func (t *Table) Scan(target any) (err error) {
+	// 判断target是否为切片
+	ty := reflect.TypeOf(target)
+	if ty.Kind() != reflect.Pointer {
+		return errors.New("target must be pointer")
+	}
+	ty = ty.Elem()
+	isSlice := ty.Kind() == reflect.Slice
+	if isSlice {
+		rows, err := t.QueryMulti()
+		if err != nil {
+			return err
+		}
+		return rows.ScanMulti(target)
+	}
+	row, err := t.Query()
+	if err != nil {
+		return err
+	}
+	return row.ScanMulti(target)
+}
+
+// ScanMulti 扫描多行数据到切片
+func (t *Table) ScanMulti(target any) (err error) {
+	// 判断target是否为切片
+	ty := reflect.TypeOf(target)
+	if ty.Kind() != reflect.Pointer {
+		return errors.New("target must be pointer")
+	}
+	ty = ty.Elem()
+	if ty.Kind() != reflect.Slice {
+		return errors.New("target must be pointer slice")
+	}
+	rows, err := t.QueryMulti()
+	if err != nil {
+		return err
+	}
+	return rows.ScanMulti(target)
 }
 
 func (t *Table) Lock() *Table {
@@ -671,10 +737,14 @@ func (t *Table) Execute() (int64, error) {
 	}
 	t.log.Debug(sql)
 	stmt, err := t.dbConn.Prepare(sql)
+	defer func() {
+		if stmt != nil {
+			stmt.Close()
+		}
+	}()
 	if err != nil {
 		return 0, err
 	}
-	defer stmt.Close()
 	rst, err := stmt.Exec()
 	if err != nil {
 		return 0, err

@@ -109,9 +109,23 @@ func NewInstance(ctx context.Context, name string) *Db {
 	return dbcon
 }
 
+func NewDefaultInstance(ctx context.Context) *Db {
+	dbcon := &Db{}
+	sm := getSqlx(DEFAULT_KEY)
+	dbcon.server = sm.getOpts().Server
+	dbcon.log = sm.getOpts().log
+	dbcon.ctx = ctx
+	conn, err := sm.dbcon.Connect(ctx)
+	if err != nil {
+		sm.getOpts().log.Error(err.Error())
+	}
+	dbcon.conn = conn
+	return dbcon
+}
+
 type Db struct {
 	conn   DbConn
-	server Server
+	server *Server
 	log    StdLog
 	ctx    context.Context
 }
@@ -208,8 +222,12 @@ func (d *Db) WithPrefix(tbl string) string {
 
 func (d *Db) Query(query string, args ...any) (*Row, error) {
 	rows, err := d.conn.Query(query, args...)
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 	if err == nil {
-		defer rows.Close()
 		return GetRow(rows)
 	}
 	return nil, err
@@ -217,8 +235,12 @@ func (d *Db) Query(query string, args ...any) (*Row, error) {
 
 func (d *Db) QueryMulti(query string, args ...any) (*Rows, error) {
 	rows, err := d.conn.Query(query, args...)
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 	if err == nil {
-		defer rows.Close()
 		return GetRows(rows)
 	}
 	return nil, err

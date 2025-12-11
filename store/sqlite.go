@@ -25,7 +25,7 @@ type Sqlite struct {
 }
 
 func NewSqlite(opt *sqlm.Options) (*Sqlite, error) {
-	return &Sqlite{options: opt, conf: &opt.Server, log: opt.GetLogger(), isConnected: false}, nil
+	return &Sqlite{options: opt, conf: opt.Server, log: opt.GetLogger(), isConnected: false}, nil
 
 }
 

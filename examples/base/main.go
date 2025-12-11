@@ -212,7 +212,7 @@ func main() {
 		fmt.Println(err.Error())
 	} else {
 		rst := []*Products{}
-		ps.Scan(&rst, func() any {
+		ps.Scan(&rst, func(row *sqlm.Row) any {
 			return &Products{}
 		})
 		for _, v := range rst {
@@ -222,6 +222,8 @@ func main() {
 		r, err := json.Marshal(rst)
 		fmt.Println(string(r), err)
 	}
+	rst1 := []*Products{}
+	ps.ScanMulti(&rst1)
 
 	return
 	row, err := db.Table("sync_tables").Select("*").Query()
