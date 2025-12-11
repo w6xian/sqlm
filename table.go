@@ -436,8 +436,6 @@ func (t *Table) Query() (*Row, error) {
 	if err == nil {
 		return GetRow(rows)
 	}
-	// 出错后，主动关闭数据库连接
-	t.db.Close()
 	return nil, err
 }
 func (t *Table) Rows() (*sql.Rows, error) {
@@ -454,8 +452,6 @@ func (t *Table) Rows() (*sql.Rows, error) {
 	if err == nil {
 		return rows, err
 	}
-	// 出错后，主动关闭数据库连接
-	t.db.Close()
 	return nil, err
 }
 
@@ -473,8 +469,6 @@ func (t *Table) QueryMulti() (*Rows, error) {
 	if err == nil {
 		return GetRows(rows)
 	}
-	// 出错后，主动关闭数据库连接
-	t.db.Close()
 	return nil, err
 }
 
