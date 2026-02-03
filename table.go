@@ -594,7 +594,13 @@ func (t *Table) getSql() string {
 		sql = sql + strings.Join(t.pJoin, " ")
 	}
 	if len(t.pWhere) > 0 {
-		sql = sql + " WHERE " + strings.Join(t.pWhere, " ")
+		whereStr := strings.TrimSpace(strings.Join(t.pWhere, " "))
+		if strings.HasPrefix(whereStr, "AND ") {
+			whereStr = whereStr[4:]
+		} else if strings.HasPrefix(whereStr, "OR ") {
+			whereStr = whereStr[3:]
+		}
+		sql = sql + " WHERE " + whereStr
 	}
 	if len(t.pGroupBy) > 0 {
 		sql = sql + " GROUP BY " + strings.Join(t.pGroupBy, ",")
@@ -713,7 +719,12 @@ func (t *Table) Execute() (int64, error) {
 	}
 	option := t.pOption
 	sql := ""
-	where := strings.Join(t.pWhere, " ")
+	where := strings.TrimSpace(strings.Join(t.pWhere, " "))
+	if strings.HasPrefix(where, "AND ") {
+		where = where[4:]
+	} else if strings.HasPrefix(where, "OR ") {
+		where = where[3:]
+	}
 	switch option {
 	case "update_set", "update":
 		if len(where) <= 0 {
@@ -724,7 +735,7 @@ func (t *Table) Execute() (int64, error) {
 		if len(where) <= 0 {
 			panic("sql Delete 中需要设置Where条件")
 		}
-		sql = fmt.Sprintf("DELETE FROM %s WHERE %s", t.table_prefix(), strings.Join(t.pWhere, " "))
+		sql = fmt.Sprintf("DELETE FROM %s WHERE %s", t.table_prefix(), where)
 	}
 	if len(sql) <= 0 {
 		panic("sql Execute 中需要操作")

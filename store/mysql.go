@@ -29,7 +29,7 @@ func NewMysql(opt *sqlm.Options) (Driver, error) {
 }
 
 func (m *Mysql) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
-	return &Mysql{conf: m.conf, connection: conn, isConnected: isConnected}, nil
+	return &Mysql{options: m.options, conf: m.conf, log: m.log, connection: conn, isConnected: isConnected}, nil
 }
 
 func (m *Mysql) Conf() *sqlm.Server {
@@ -67,13 +67,20 @@ func (m *Mysql) check() error {
 }
 
 func (m *Mysql) Connect(ctx context.Context) (sqlm.DbConn, error) {
+	if m.connection != nil {
+		if err := m.connection.Ping(); err == nil {
+			newConn, _ := m.NewConn(m.connection, true)
+			newConn.WithContext(ctx)
+			return newConn, nil
+		}
+	}
+
 	source := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database, m.conf.Charset)
 
 	if strings.HasPrefix(m.conf.Host, "unix:") {
 		parts := strings.SplitN(m.conf.Host, ":", 2)
 		socketPath := parts[1]
-		// mariadbUser+":"+mariadbPassword+"@unix("+socketPath+")"+"/"+mariadbDatabase+"?charset=utf8&parseTime=True"
-		source = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, socketPath, m.conf.Port, m.conf.Database, m.conf.Charset)
+		source = fmt.Sprintf("%s:%s@unix(%s)/%s?charset=%s", m.conf.Username, m.conf.Password, socketPath, m.conf.Database, m.conf.Charset)
 	}
 
 	conn, err := sql.Open(
@@ -90,11 +97,15 @@ func (m *Mysql) Connect(ctx context.Context) (sqlm.DbConn, error) {
 	conn.SetMaxOpenConns(m.conf.MaxOpenConns)
 	conn.SetMaxIdleConns(m.conf.MaxIdleConns)
 	conn.SetConnMaxLifetime(time.Duration(m.conf.MaxLifetime))
+
+	m.connection = conn
+	m.isConnected = true
+
 	newConn, err := m.NewConn(conn, true)
-	newConn.WithContext(ctx)
 	if err != nil {
 		return nil, err
 	}
+	newConn.WithContext(ctx)
 	return newConn, nil
 }
 func (m *Mysql) WithContext(ctx context.Context) {

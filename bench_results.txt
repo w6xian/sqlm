@@ -1,0 +1,10 @@
+goos: windows
+goarch: amd64
+pkg: github.com/w6xian/sqlm
+cpu: Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz
+BenchmarkConnectReuse-6        	    1428	    774971 ns/op	    1576 B/op	      36 allocs/op
+BenchmarkQueryMapFilters-6     	   47840	     24963 ns/op	    1262 B/op	      36 allocs/op
+BenchmarkQuerySprintfWhere-6   	   49863	     24326 ns/op	    1198 B/op	      33 allocs/op
+BenchmarkTest-6                	1000000000	         0.2585 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/w6xian/sqlm	6.167s

@@ -30,7 +30,7 @@ func NewSqlite(opt *sqlm.Options) (*Sqlite, error) {
 }
 
 func (m *Sqlite) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
-	return &Sqlite{conf: m.conf, connection: conn, isConnected: false}, nil
+	return &Sqlite{options: m.options, conf: m.conf, log: m.log, connection: conn, isConnected: isConnected}, nil
 }
 
 func (m *Sqlite) Conf() *sqlm.Server {
@@ -67,6 +67,13 @@ func (m *Sqlite) check() error {
 }
 
 func (m *Sqlite) Connect(ctx context.Context) (sqlm.DbConn, error) {
+	if m.connection != nil {
+		if err := m.connection.Ping(); err == nil {
+			newConn, _ := m.NewConn(m.connection, true)
+			newConn.WithContext(ctx)
+			return newConn, nil
+		}
+	}
 	// Connect to the database with some sane settings:
 	// - No shared-cache: it's obsolete; WAL journal mode is a better solution.
 	// - No foreign key constraints: it's currently disabled by default, but it's a
