@@ -9,3 +9,6 @@ examples/base/sqlm_demo.db
 *.db-wal
 *.db-shm
 sqlm_demo.db
+test.db
+*.exe
+cov_tmp*

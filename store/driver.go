@@ -45,6 +45,8 @@ func NewDriver(opt *sqlm.Options) (Driver, error) {
 		driver, err = NewSqlite(opt)
 	case "mysql":
 		driver, err = NewMysql(opt)
+	case "postgres", "pg":
+		driver, err = NewPostgres(opt)
 	default:
 		return nil, errors.New("unknown db driver")
 	}
@@ -67,6 +69,8 @@ func NewDefaultDriver(opts ...sqlm.ServerOption) (Driver, error) {
 		driver, err = NewSqlite(opt)
 	case "mysql":
 		driver, err = NewMysql(opt)
+	case "postgres", "pg":
+		driver, err = NewPostgres(opt)
 	default:
 		return nil, errors.New("unknown db driver")
 	}

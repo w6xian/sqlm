@@ -1,7 +1,6 @@
 package sqlm
 
 import (
-	"database/sql/driver"
 	"reflect"
 )
 
@@ -20,24 +19,6 @@ func supportedColumnType(v reflect.Value) bool {
 	}
 }
 
-func isValidSqlValue(v reflect.Value) bool {
-	// This method covers two cases in which we know the Value can be converted to sql:
-	// 1. It returns true for sql.driver's type check for types like time.Time
-	// 2. It implements the driver.Valuer interface allowing conversion directly
-	//    into sql statements
-	if v.Kind() == reflect.Ptr {
-		ptrVal := reflect.New(v.Type().Elem())
-		return isValidSqlValue(ptrVal.Elem())
-	}
-
-	if driver.IsValue(v.Interface()) {
-		return true
-	}
-
-	valuerType := reflect.TypeOf((*driver.Valuer)(nil)).Elem()
-	return v.Type().Implements(valuerType)
-}
-
 func setColumnValue(v reflect.Value, c Column) {
 	switch v.Kind() {
 	case reflect.Bool:
@@ -53,9 +34,29 @@ func setColumnValue(v reflect.Value, c Column) {
 	case reflect.String:
 		v.SetString(c.String())
 	case reflect.Interface:
-	case reflect.Ptr, reflect.Slice, reflect.Array:
+		// 仅支持空接口(any)，有方法的接口无法从字节推断实现
+		if v.NumMethod() == 0 && c != nil {
+			v.Set(reflect.ValueOf(c.String()))
+		}
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			// []byte 按原始字节写入，避免拷错
+			if c == nil {
+				v.SetBytes(nil)
+				return
+			}
+			v.SetBytes(append([]byte(nil), c...))
+			return
+		}
+	case reflect.Ptr:
+		if len(c) == 0 {
+			// NULL 列保持零值(nil)
+			v.Set(reflect.Zero(v.Type()))
+			return
+		}
 		ptrVal := reflect.New(v.Type().Elem())
 		setColumnValue(ptrVal.Elem(), c)
+		v.Set(ptrVal)
 	default:
 	}
 }

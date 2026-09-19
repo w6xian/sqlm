@@ -26,6 +26,9 @@ func WithLogger(logger StdLog) Option {
 
 func WithMysqlServer(opts ...ServerOption) Option {
 	return func(o *Options) {
+		if o.Server == nil {
+			o.Server = newDefaultMysqlServer()
+		}
 		o.Server.Protocol = "mysql"
 		o.Server.Host = "127.0.0.1"
 		o.Server.Port = 3306
@@ -46,7 +49,7 @@ func NewOptions(opts ...ServerOption) *Options {
 	options := &Options{}
 	options.Name = DEFAULT_KEY
 	options.Server = newDefaultMysqlServer()
-	options.log = &baseLog{Level: 9}
+	options.log = &baseLog{Level: defaultLogLevel}
 	for _, o := range opts {
 		o(options.Server)
 	}
@@ -56,7 +59,7 @@ func NewDefaultOptions(opts ...ServerOption) *Options {
 	options := &Options{}
 	options.Name = DEFAULT_KEY
 	options.Server = newDefaultMysqlServer()
-	options.log = &baseLog{Level: 9}
+	options.log = &baseLog{Level: defaultLogLevel}
 	for _, o := range opts {
 		o(options.Server)
 	}
@@ -70,11 +73,21 @@ func NewOptionsWithServer(profile Server, args ...string) (*Options, error) {
 	opts := &Options{}
 	opts.Name = args[0]
 	opts.Server = &profile
-	opts.log = &baseLog{Level: 9}
+	opts.log = &baseLog{Level: defaultLogLevel}
 	return opts, nil
 }
 
+// defaultLogLevel keeps the built-in logger quiet by default: only warnings and
+// above reach stdout. SQL tracing (DEBUG) must be opted in through SetLogger().
+const defaultLogLevel = 4
+
 func CheckOption(opt *Options) (*Options, error) {
+	if opt == nil {
+		return nil, ErrNilArgument
+	}
+	if opt.Server == nil {
+		opt.Server = newDefaultMysqlServer()
+	}
 	if opt.Mode != "demo" && opt.Mode != "dev" && opt.Mode != "prod" {
 		opt.Mode = "demo"
 	}
@@ -149,6 +162,25 @@ func (opts *Options) GetLogger() StdLog {
 
 func (p *Options) IsDev() bool {
 	return p.Mode != "prod"
+}
+
+// loggerOrDefault returns the configured logger and never nil. A no-op logger
+// is installed when none has been set so callers can always log safely.
+func loggerOrDefault(opt *Options) StdLog {
+	if opt == nil {
+		return NewNoopLogger()
+	}
+	if l := opt.GetLogger(); l != nil {
+		return l
+	}
+	l := NewNoopLogger()
+	opt.SetLogger(l)
+	return l
+}
+
+// Logger returns the logger carried by the options, never nil.
+func (opts *Options) Logger() StdLog {
+	return loggerOrDefault(opts)
 }
 
 func NewServer() *Server {

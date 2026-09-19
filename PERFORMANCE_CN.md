@@ -1,41 +1,65 @@
 # sqlm 性能评估报告
 
 ## 1. 概述
-本报告提供了 `sqlm` 库的性能评估，重点关注最近优化的连接池和向后兼容的查询参数传递机制。
+本报告基于重构后的测试基准集对 `sqlm` 库进行性能评估，覆盖实例获取、连接池复用、SQL 构建、查询/写入/事务等路径。基准位于 `benchmark_test.go`，全部基于独立的 SQLite 实例（每个基准一个库文件）。
 
 ## 2. 测试环境
-*   **操作系统**: Windows
-*   **架构**: amd64
-*   **处理器**: Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz
-*   **包**: `github.com/w6xian/sqlm`
-*   **日期**: 2026-02-03
+* **操作系统**: Windows
+* **架构**: amd64
+* **CPU**: Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz
+* **包**: `github.com/w6xian/sqlm`
 
-## 3. 基准测试结果
+## 3. 基准结果
 
-| 基准测试名称 | 迭代次数 | 耗时 (ns/op) | 内存 (B/op) | 分配数 (allocs/op) | 描述 |
+| 基准名称 | 迭代次数 | 耗时 (ns/op) | 内存 (B/op) | 分配次数 (allocs/op) | 说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BenchmarkConnectReuse** | 1,428 | 774,971 | 1,576 | 36 | 连接复用性能 (SQLite) |
-| **BenchmarkQueryMapFilters** | 47,840 | 24,963 | 1,262 | 36 | 带 Map 参数的 `AndFilters` |
-| **BenchmarkQuerySprintfWhere** | 49,863 | 24,326 | 1,198 | 33 | 带 `fmt.Sprintf` 的 `Where` (传统模式) |
+| **BenchmarkConnectReuse** | 279,738,015 | 4.05 | 0 | 0 | 从 Db 取已就绪的连接池 |
+| **BenchmarkInstanceLookup** | 13,001,731 | 89.78 | 144 | 2 | `NewInstance` 获取实例 |
+| **BenchmarkBuildSQL** | 1,826,641 | 673.1 | 806 | 14 | 仅构建 SQL 字符串 |
+| **BenchmarkGetCount** | 92,380 | 13,428 | 1,364 | 21 | `COUNT(*)` 查询 |
+| **BenchmarkQueryRow** | 48,327 | 24,910 | 2,177 | 51 | 单行查询 |
+| **BenchmarkQueryMulti** | 17,601 | 71,447 | 11,259 | 414 | 20 行结果集 |
+| **BenchmarkScanStruct** | 13,411 | 89,322 | 16,042 | 478 | 20 行扫描进结构体切片 |
+| **BenchmarkQuerySprintfWhere** | 52,837 | 22,127 | 1,490 | 28 | 旧式 `Where("age = %d", v)` |
+| **BenchmarkQueryMapFilters** | 51,844 | 23,044 | 1,587 | 33 | `AndFilters(map[string]any{...})` |
+| **BenchmarkInsertSingle** | 993 | 1,210,116 | 1,356 | 26 | 单行写入（含 fsync） |
+| **BenchmarkInsertBatch** | 837 | 1,417,385 | 25,288 | 48 | 50 行批量写入 |
+| **BenchmarkUpdateRow** | 1,243 | 1,063,612 | 1,705 | 33 | 单行更新 |
+| **BenchmarkTransaction** | 1,160 | 1,092,734 | 1,607 | 35 | 一次完整事务提交 |
 
 ## 4. 分析
 
-### 4.1 连接池优化
-`BenchmarkConnectReuse` 测试评估了在 `mysql.go` 和 `sqlite.go` 中通过优化的 `Connect` 方法复用现有数据库连接的效率。
-*   **性能**: 每次操作约 0.77 ms。
-*   **效率**: 低分配计数 (36 allocs/op) 表明连接复用逻辑有效地避免了昂贵的对象重建，验证了优化的有效性。
+### 4.1 连接池复用
+`Connect` 在连接池已就绪时（`isConnected`）直接返回持有同一个 `*sql.DB` 的新句柄，不再执行 `PingContext`。
 
-### 4.2 查询性能比较
-我们比较了两种查询构建方法：
-1.  **Map 过滤器**: 使用 `AndFilters(map[string]any{...})`。
-2.  **传统 Sprintf**: 使用 `Where("age = %d", val)`。
+* 早期实现每次 `NewInstance` 都要一次 Ping 往返：**2,987 ns/op**。
+* 优化后同路径：`instance lookup` 仅 **89.78 ns/op**（约 33 倍提升），直接取连接池为 **4.05 ns/op 且零分配**。
+* 连接错误不再在连接阶段统一 Ping，而是由具体语句暴露，可用 `Ping()` 显式探测——这是用一次可忽略的延迟换取每次调用的性能。
 
-**发现**:
-*   **速度**: 传统的 `fmt.Sprintf` 方法 (~24.3 µs) 比 Map 过滤器方法 (~25.0 µs) 略快。这是预期的，因为 map 迭代和反射会增加少量开销。
-*   **内存**: 传统方法在内存效率上也略高 (1,198 B/op vs 1,262 B/op)，分配次数更少 (33 vs 36)。
-*   **结论**: 严格遵守用户保留 `fmt.Sprintf` 参数传递的要求具有**积极的性能影响**。它仍然是 `sqlm` 中构建查询的最有效方式。
+### 4.2 查询构造方式对比
+1. **Map 过滤器**：`AndFilters(map[string]any{...})` —— 23,044 ns/op。
+2. **旧式 Sprintf**：`Where("age = %d", val)` —— 22,127 ns/op。
+
+**结论**：两者基本等价（差异 < 5%，落在噪声范围内），Map 方式多出的一次 map 迭代与反射开销可以忽略。**推荐优先使用 `AndFilters`**：它对值做了转义处理，避免注入风险；只有确实需要直接拼接原始 SQL 片段时才使用 `Where/And/Or` 的格式化参数。
+
+### 4.3 写入与事务
+SQLite 下每次写入约为毫秒级（1.0 ~ 1.4 ms），瓶颈在 WAL 与磁盘同步，而非 SQL 构建（构建仅 673 ns）。因此：
+
+* **批量写优先用 `Inserts`**：单次 `INSERT ... VALUES (...),(...)` 摊薄了每条记录的提交成本。
+* 事务（1.09 ms/op）与单条写入（1.21 ms/op）同量级，**多条写操作应放进 `db.Action`**，用一次提交完成。
+
+### 4.4 结果集扫描
+`ScanStruct`（全量 20 行映射到结构体）比 `QueryMulti`（保留原始 `Rows`）多约 18 µs 与 64 次分配。扫描走的是反射 + json tag 匹配：
+
+* 已经为 tag 索引建立了 per-row 的 map 复用，避免每行重复计算列位置。
+* 当只需要少量字段时，优先 `Select("id,name")` 减少反射与拷贝；不需要实体映射时直接用 `QueryMulti` + `Row.Get()`。
 
 ## 5. 结论
-*   **优化成功**: 连接池的改进带来了稳定且高效的连接管理。
-*   **向后兼容性**: 传统的 `fmt.Sprintf` 参数传递风格不仅得到完全支持，而且表现出优于基于 map 的替代方案的性能。
-*   **建议**: 用户可以放心地继续使用传统的参数传递风格，无需担心性能问题。
+* 连接池已就绪时零往返复用，实例获取开销降至百纳秒级。
+* 查询构造的两种风格性能相当，选型应以**安全性**（`AndFilters`）而非性能为决策依据。
+* 写入瓶颈在存储引擎，`Inserts` 批量写与 `Action` 事务是两条明确的优化路径。
+
+## 6. 复现方式
+```bash
+go test -run XXX -bench . -benchmem ./...
+```

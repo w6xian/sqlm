@@ -52,7 +52,6 @@ func GetInt64(val any) int64 {
 	default:
 		return 0
 	}
-	return 0
 }
 
 func GetInt(value string) int {
@@ -117,9 +116,12 @@ func GetString(value any) string {
 }
 
 func BuildSqlQ(num int) []string {
-	rst := []string{}
+	if num <= 0 {
+		return nil
+	}
+	rst := make([]string, num)
 	for i := 0; i < num; i++ {
-		rst = append(rst, "?")
+		rst[i] = "?"
 	}
 	return rst
 }
@@ -148,6 +150,9 @@ func CheckDataDir(dataDir string) (string, error) {
 func IsEmpty(value any) bool {
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
+	case reflect.Invalid:
+		// nil interface
+		return true
 	case reflect.Bool:
 		return !v.Bool()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -178,39 +183,51 @@ func GetOrDefault[T any](v T, def T) T {
 // 示例: SqlFilter("select * from table where id = ? and name = ?", 1, "张三")
 // 结果: select * from table where id = 1 and name = '张三'
 func SqlParse(str string, values ...any) string {
-	var result string
+	var sb strings.Builder
+	sb.Grow(len(str) + 16*len(values))
 	var valueIndex int
 	for i := 0; i < len(str); i++ {
 		if str[i] == '?' && valueIndex < len(values) {
-			// 找到问号占位符，需要替换
 			switch v := values[valueIndex].(type) {
 			case string:
-				// 字符串类型，添加单引号并转义内部的单引号
-				escaped := ""
-				for _, ch := range v {
-					if ch == '\'' {
-						escaped += "''"
-					} else {
-						escaped += string(ch)
-					}
-				}
-				result += "'" + escaped + "'"
-			case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
-				// 数字类型，直接转换为字符串
-				result += GetString(v)
+				sb.WriteByte('\'')
+				sb.WriteString(escapeQuotes(v))
+				sb.WriteByte('\'')
 			case nil:
 				// nil值转换为NULL
-				result += "NULL"
+				sb.WriteString("NULL")
+			case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+				sb.WriteString(GetString(v))
 			default:
-				// 其他类型，转换为字符串并添加单引号
-				result += "'" + GetString(v) + "'"
+				sb.WriteByte('\'')
+				sb.WriteString(escapeQuotes(GetString(v)))
+				sb.WriteByte('\'')
 			}
 			valueIndex++
-		} else {
-			// 复制原字符
-			result += string(str[i])
+			continue
+		}
+		sb.WriteByte(str[i])
+	}
+	return sb.String()
+}
+
+// escapeQuotes doubles single quotes and drops NUL bytes so a value can never
+// terminate the literal it sits in.
+func escapeQuotes(v string) string {
+	if strings.IndexByte(v, '\'') < 0 && strings.IndexByte(v, 0) < 0 {
+		return v
+	}
+	var sb strings.Builder
+	sb.Grow(len(v) + 4)
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case '\'':
+			sb.WriteString("''")
+		case 0:
+			// NUL 会让语句被截断，直接剔除
+		default:
+			sb.WriteByte(v[i])
 		}
 	}
-
-	return result
+	return sb.String()
 }
