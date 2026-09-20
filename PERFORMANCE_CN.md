@@ -63,3 +63,51 @@ SQLite 下每次写入约为毫秒级（1.0 ~ 1.4 ms），瓶颈在 WAL 与磁�
 ```bash
 go test -run XXX -bench . -benchmem ./...
 ```
+
+## 7. SQL 拼装路径优化（第二轮）
+
+`table.go` 里"拼装语句"这一段原来每一步都留下中间对象：列名切片、占位符切片、
+`strings.Join`、`fmt.Sprintf`、`strings.Split`……一次 `Insert` 要 24 次分配，
+50 行批量写在 PostgreSQL 下要 671 次分配。改成**一个 `strings.Builder` 直接写**，
+并把能提前算的（长度预估、是否需要转义）先算掉。
+
+新增基准位于 `benchmark_sql_test.go`，用假连接（`recConn`）只跑拼装、不含数据库往返；
+`BenchmarkNoiseFloor` 用来量机器噪声下限。数据取 `-count=5 -cpu=1` 的最小值：
+
+| 基准 | 旧 ns/op | 新 ns/op | 变化 | B/op | allocs/op |
+| :--- | ---: | ---: | ---: | :--- | :--- |
+| AssembleSelectSimple | 531 | 442 | -17% | 701 → 693 | 8 → 6 |
+| AssembleSelectFull | 1602 | 1445 | -10% | 1811 → 1781 | 31 → 27 |
+| AssembleWhereFilters | 2779 | 2469 | -11% | 1881 → 1697 | 39 → 35 |
+| AssembleInsert/mysql | 1540 | 859 | -44% | 1176 → 872 | 24 → 10 |
+| AssembleInsert/sqlite | 1473 | 855 | -42% | 1176 → 872 | 24 → 10 |
+| AssembleInsert/postgres | 1739 | 939 | -46% | 1208 → 872 | 30 → 10 |
+| AssembleInserts/mysql（50 行） | 10252 | 2298 | -78% | 14400 → 7400 | 170 → 7 |
+| AssembleInserts/sqlite | 10527 | 2302 | -78% | 14400 → 7400 | 170 → 7 |
+| AssembleInserts/postgres | 23634 | 9442 | -60% | 19504 → 7400 | 671 → 7 |
+| AssembleUpdate/mysql | 1656 | 1071 | -35% | 1113 → 976 | 24 → 13 |
+| AssembleUpdate/sqlite | 1534 | 1059 | -31% | 1088 → 976 | 22 → 13 |
+| AssembleUpdate/postgres | 1529 | 1054 | -31% | 1088 → 976 | 22 → 13 |
+| BenchmarkBuildSQL（既有基准） | 827 | 693 | -16% | 793 → 786 | 14 → 11 |
+
+* **噪声下限**：`BenchmarkNoiseFloor` 为 0.54 ~ 0.71 ns/op；但本机同参数重跑的波动可达
+  ±40%（见 `InsertSingle`：1.1 ms ~ 3.8 ms），所以 **ns/op 变化小于约 10% 的按噪声处理**；
+  `B/op` 与 `allocs/op` 是确定性指标，本轮全部下降。
+* **端到端路径无回归**：`QueryRow` 28496 → 26080（-8%，噪声内），`InsertSingle` -2%，
+  `InsertBatch` +3%，`UpdateRow` +7%，均由 SQLite 磁盘往返主导；分配次数分别
+  51 → 48、28 → 19、196 → 33、33 → 25。
+
+拼装路径的行为保持不变，由 `table_assembly_test.go` 里的黄金用例逐字节锁定（三种协议
+的 insert / 批量 insert / update / delete / select 文本）。复现：
+
+```bash
+go test -run='^$' -bench='BenchmarkAssemble|BenchmarkNoiseFloor|BenchmarkBuildSQL' -benchmem -count=5 -cpu=1 .
+```
+
+### 7.1 顺带修掉的三个缺陷
+
+| 缺陷 | 复现 | 修复 |
+| :--- | :--- | :--- |
+| `Inserts` 就地改写调用方的 `columns`：换协议复用同一切片会生成 `` "`name`" `` 这种坏语句 | `TestInsertsLeavesCallerColumnsUntouched` | 列名直接写进 builder，不改入参 |
+| `Set("discount = '50%'")` 无参数时仍跑 `Sprintf`，被写成 `50%!'(MISSING)` | `TestSetWithoutArgsKeepsFormatVerbs` | 只有传了参数才格式化 |
+| SQLite / PostgreSQL 下 NUL 字节原样进入字面量（sqlite 截断语句、postgres 报 invalid byte sequence） | `TestEscapeHandlesNULPerProtocol` | 标准协议丢弃 NUL，MySQL 仍写成 `\0` |

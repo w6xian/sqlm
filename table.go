@@ -86,11 +86,14 @@ func (t *Table) From(tle string) *Table {
 }
 
 // 加前坠 adb.table 表：数据库+表
+//
+// 只用 strings.Count/IndexByte 判断，不再 strings.Split 出一个切片再 Sprintf：
+// 每次拼装都要走这里，拆片的开销是纯粹的浪费。
 func (t *Table) table_prefix() string {
-	dt := strings.Split(t.pTable, ".")
-	if len(dt) == 2 {
-		// t.dbConn.Conf().Database = dt[0]
-		return fmt.Sprintf("%s%s", t.pPre, dt[1])
+	if strings.Count(t.pTable, ".") == 1 {
+		if i := strings.IndexByte(t.pTable, '.'); i >= 0 {
+			return t.pPre + t.pTable[i+1:]
+		}
 	}
 	return t.pPre + t.pTable
 }
@@ -150,14 +153,25 @@ func (t *Table) Insert(data map[string]any) (int64, error) {
 	}
 	sort.Strings(keys)
 
-	columns := make([]string, 0, len(keys))
+	// 直接写进一个 builder：旧实现要先生成列名切片、占位符切片，再 Join 两次、
+	// Sprintf 一次，每一步都是一次分配。
 	values := make([]any, 0, len(keys))
-	for _, c := range keys {
-		columns = append(columns, t.quoteIdent(c))
+	var sb strings.Builder
+	sb.Grow(32 + len(t.pTable) + joinLen(keys)*3)
+	sb.WriteString("INSERT INTO ")
+	sb.WriteString(t.quoteTable())
+	sb.WriteString(" (")
+	for i, c := range keys {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		t.writeIdent(&sb, c)
 		values = append(values, data[c])
 	}
-	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", t.quoteTable(),
-		strings.Join(columns, ","), strings.Join(t.buildSqlQ(len(values)), ","))
+	sb.WriteString(") VALUES (")
+	t.writePlaceholders(&sb, len(values), 0)
+	sb.WriteByte(')')
+	sql := sb.String()
 	t.logger().Debug(sql)
 
 	stmt, err := t.dbConn.Prepare(sql)
@@ -205,12 +219,63 @@ func quoteIdentFor(protocol, name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
+// writeIdent writes a quoted identifier into sb.
+//
+// The common case - a name without any quote character - is written straight
+// into the builder, which saves one allocation per column compared to building
+// the quoted string first.
+func (t *Table) writeIdent(sb *strings.Builder, name string) {
+	quote := byte('"')
+	if t.protocol == MYSQL {
+		quote = '`'
+	}
+	if strings.IndexByte(name, quote) < 0 {
+		sb.WriteByte(quote)
+		sb.WriteString(name)
+		sb.WriteByte(quote)
+		return
+	}
+	sb.WriteString(quoteIdentFor(t.protocol, name))
+}
+
+// writePlaceholders writes count placeholders into sb. PostgreSQL numbers its
+// markers, so start lets a multi row statement continue the numbering of the
+// previous row.
+func (t *Table) writePlaceholders(sb *strings.Builder, count, start int) {
+	var buf [20]byte
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		if !isPostgres(t.protocol) {
+			sb.WriteByte('?')
+			continue
+		}
+		sb.WriteByte('$')
+		// 直接写进 builder，避免 strconv.Itoa 为三位以上的编号分配字符串
+		sb.Write(strconv.AppendInt(buf[:0], int64(start+i+1), 10))
+	}
+}
+
 // escape quotes a value so it can be safely inlined in a statement.
 func (t *Table) escape(value string) string {
 	// PostgreSQL runs with standard_conforming_strings: a backslash is a
 	// regular character, escaping it would store duplicated backslashes.
 	if t.protocol == SQLITE || isPostgres(t.protocol) {
-		return strings.ReplaceAll(value, "'", "''")
+		if !strings.ContainsAny(value, "'\x00") {
+			return value
+		}
+		out := strings.ReplaceAll(value, "'", "''")
+		if strings.IndexByte(value, 0) >= 0 {
+			// 标准协议的字符串里放不下 NUL：sqlite 会截断语句，postgres 会报
+			// invalid byte sequence，直接丢掉比把整条语句写坏要好。
+			out = strings.ReplaceAll(out, "\x00", "")
+		}
+		return out
+	}
+	// 没有需要转义的字符时原样返回，省掉一次分配
+	if !strings.ContainsAny(value, "'\\\x00") {
+		return value
 	}
 	var sb strings.Builder
 	sb.Grow(len(value) + 4)
@@ -242,22 +307,36 @@ func (t *Table) Inserts(columns []string, data [][]any) (int64, error) {
 	if colLen <= 0 {
 		return 0, ErrMissingColumns
 	}
-	for k, v := range columns {
-		columns[k] = t.quoteIdent(v)
-	}
+	// 注意：绝不就地改写调用方传入的 columns（旧实现会这么干，同一个切片换协议
+	// 复用一次就会把反引号留在双引号里面，语句直接写坏）。
 	val := make([]any, 0, len(data)*colLen)
-	qarr := make([]string, 0, len(data))
-	for _, v := range data {
+	var sb strings.Builder
+	sb.Grow(32 + len(t.pTable) + joinLen(columns)*3 + len(data)*(colLen*5+3))
+	sb.WriteString("INSERT INTO ")
+	sb.WriteString(t.quoteTable())
+	sb.WriteString(" (")
+	for i, c := range columns {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		t.writeIdent(&sb, c)
+	}
+	sb.WriteString(") VALUES ")
+	for i, v := range data {
 		if colLen != len(v) {
 			return 0, ErrColumnsNotMatched
 		}
+		if i > 0 {
+			sb.WriteByte(',')
+		}
 		// PostgreSQL numbers its placeholders across the whole statement, so
 		// every row continues where the previous one stopped.
-		qarr = append(qarr, "("+strings.Join(t.buildSqlQ(colLen, len(val)), ",")+")")
+		sb.WriteByte('(')
+		t.writePlaceholders(&sb, colLen, len(val))
+		sb.WriteByte(')')
 		val = append(val, v...)
 	}
-
-	sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", t.quoteTable(), strings.Join(columns, ","), strings.Join(qarr, ","))
+	sql := sb.String()
 	t.logger().Debug(sql)
 	stmt, err := t.dbConn.Prepare(sql)
 	defer func() {
@@ -749,41 +828,67 @@ func (t *Table) SQL() string {
 }
 
 func (t *Table) getSql() string {
-	if len(t.pColumns) <= 0 {
-		t.pColumns = []string{"*"}
+	cols := t.pColumns
+	if len(cols) <= 0 {
+		cols = []string{"*"}
 	}
+	// 先估一次长度，省掉 builder 的反复扩容；下面所有列表都直接写进 builder，
+	// 不再 strings.Join 出中间字符串。
 	var sb strings.Builder
-	sb.Grow(64 + len(t.pTable))
+	sb.Grow(64 + len(t.pTable) + joinLen(cols) + joinLen(t.pWhere) +
+		joinLen(t.pJoin) + joinLen(t.pGroupBy) + joinLen(t.pOrderA) + joinLen(t.pOrderD))
 	sb.WriteString("SELECT ")
-	sb.WriteString(strings.Join(t.pColumns, ","))
+	for i, c := range cols {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(c)
+	}
 	sb.WriteString(" FROM ")
 	sb.WriteString(t.table_prefix())
-	if len(t.pJoin) > 0 {
-		sb.WriteString(strings.Join(t.pJoin, " "))
+	for _, j := range t.pJoin {
+		sb.WriteString(j) // join 自带前导空格
 	}
-	if len(t.pWhere) > 0 {
-		whereStr := trimCondition(strings.TrimSpace(strings.Join(t.pWhere, " ")))
-		if len(whereStr) > 0 {
-			sb.WriteString(" WHERE ")
-			sb.WriteString(whereStr)
-		}
+	if hasConditions(t.pWhere) {
+		sb.WriteString(" WHERE ")
+		writeConditions(&sb, t.pWhere)
 	}
 	if len(t.pGroupBy) > 0 {
 		sb.WriteString(" GROUP BY ")
-		sb.WriteString(strings.Join(t.pGroupBy, ","))
+		for i, c := range t.pGroupBy {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(c)
+		}
 	}
 	if len(t.pOrderA) > 0 {
 		sb.WriteString(" ORDER BY ")
-		sb.WriteString(strings.Join(t.pOrderA, ","))
+		for i, c := range t.pOrderA {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(c)
+		}
 		sb.WriteString(" ASC")
 		if len(t.pOrderD) > 0 {
-			sb.WriteString(",")
-			sb.WriteString(strings.Join(t.pOrderD, ","))
+			sb.WriteByte(',')
+			for i, c := range t.pOrderD {
+				if i > 0 {
+					sb.WriteByte(',')
+				}
+				sb.WriteString(c)
+			}
 			sb.WriteString(" DESC")
 		}
 	} else if len(t.pOrderD) > 0 {
 		sb.WriteString(" ORDER BY ")
-		sb.WriteString(strings.Join(t.pOrderD, ","))
+		for i, c := range t.pOrderD {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(c)
+		}
 		sb.WriteString(" DESC")
 	}
 	if len(t.pLimit) > 0 {
@@ -812,15 +917,52 @@ func (t *Table) getSql() string {
 	return sql
 }
 
-// trimCondition drops the leading AND/OR produced by And()/Or().
-func trimCondition(s string) string {
-	if strings.HasPrefix(s, "AND ") {
-		return s[4:]
+// joinLen estimates the length of a list once it is joined with separators.
+// Only lengths are read, so sizing a builder with it costs no allocation.
+func joinLen(list []string) int {
+	n := 0
+	for _, s := range list {
+		n += len(s) + 1
 	}
-	if strings.HasPrefix(s, "OR ") {
-		return s[3:]
+	return n
+}
+
+// writeConditions writes the WHERE chain into sb: entries are joined by a
+// single space, empty entries are dropped and the leading AND/OR produced by
+// And()/Or() is removed exactly once - the same rule the old trimCondition had.
+// It reports whether anything was written.
+func writeConditions(sb *strings.Builder, conds []string) bool {
+	written := 0
+	trimmed := false
+	for _, c := range conds {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if written == 0 && !trimmed && (c == "AND" || c == "OR") {
+			trimmed = true
+			continue
+		}
+		if written > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(c)
+		written++
 	}
-	return s
+	return written > 0
+}
+
+// hasConditions reports whether the chain holds at least one real condition.
+// It gates the " WHERE " keyword so it is never written on its own.
+func hasConditions(conds []string) bool {
+	for _, c := range conds {
+		c = strings.TrimSpace(c)
+		if c == "" || c == "AND" || c == "OR" {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // logger never returns nil so getSql can always trace.
@@ -887,69 +1029,86 @@ func (t *Table) Delete(args ...string) *Table {
 	return t
 }
 
-func (t *Table) Set(value string, args ...any) *Table {
-	t.pOption = "update_set"
-	t.pData[value] = fmt.Sprintf(value, args...)
-	return t
-}
-
 func (t *Table) Update(res map[string]any) *Table {
 	t.pOption = "update"
 	for k, v := range res {
-		t.pData[k] = fmt.Sprintf("%s='%s'", t.quoteIdent(k), t.escape(utils.GetString(v)))
+		// 拼接代替 Sprintf：省掉一次格式化开销
+		t.pData[k] = t.quoteIdent(k) + "='" + t.escape(utils.GetString(v)) + "'"
 	}
+	return t
+}
+
+// Set stores a raw assignment expression. The expression is only run through
+// fmt.Sprintf when arguments are given, so a plain value containing a percent
+// sign (think of "discount = '50%'") is kept as written instead of being
+// mangled into %!(NOVERB).
+func (t *Table) Set(value string, args ...any) *Table {
+	t.pOption = "update_set"
+	if len(args) == 0 {
+		t.pData[value] = value
+		return t
+	}
+	t.pData[value] = fmt.Sprintf(value, args...)
 	return t
 }
 
 func (t *Table) SetOption(yep bool, value string, args ...any) *Table {
 	if yep {
-		t.pOption = "update_set"
-		t.pData[value] = fmt.Sprintf(value, args...)
+		return t.Set(value, args...)
 	}
 	return t
 }
 
-func (t *Table) getUpdateData() []string {
-	// 稳定顺序，避免同一份数据生成不同的SQL
+// writeUpdateData writes the SET assignments into sb in a stable order, so the
+// same data always produces the same statement.
+func (t *Table) writeUpdateData(sb *strings.Builder) {
 	keys := make([]string, 0, len(t.pData))
 	for k := range t.pData {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	data := make([]string, 0, len(keys))
-	for _, k := range keys {
-		data = append(data, t.pData[k])
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(t.pData[k])
 	}
-	return data
 }
 
 func (t *Table) Execute() (int64, error) {
 	if err := t.check(); err != nil {
 		return 0, err
 	}
-	option := t.pOption
-	sql := ""
-	where := trimCondition(strings.TrimSpace(strings.Join(t.pWhere, " ")))
-	switch option {
+	var sb strings.Builder
+	sb.Grow(32 + len(t.pTable) + joinLen(t.pWhere))
+	switch t.pOption {
 	case "update_set", "update":
-		if len(where) <= 0 {
+		if !hasConditions(t.pWhere) {
 			// 危险操作：无条件的UPDATE会影响整张表
 			return 0, ErrMissingWhere
 		}
 		if len(t.pData) == 0 {
 			return 0, ErrMissingValues
 		}
-		sql = fmt.Sprintf("UPDATE %s SET %s WHERE %s", t.table_prefix(), strings.Join(t.getUpdateData(), ","), where)
+		sb.WriteString("UPDATE ")
+		sb.WriteString(t.table_prefix())
+		sb.WriteString(" SET ")
+		t.writeUpdateData(&sb)
+		sb.WriteString(" WHERE ")
+		writeConditions(&sb, t.pWhere)
 	case "delete":
-		if len(where) <= 0 {
+		if !hasConditions(t.pWhere) {
 			// 危险操作：无条件的DELETE会清空整张表
 			return 0, ErrMissingWhere
 		}
-		sql = fmt.Sprintf("DELETE FROM %s WHERE %s", t.table_prefix(), where)
-	}
-	if len(sql) <= 0 {
+		sb.WriteString("DELETE FROM ")
+		sb.WriteString(t.table_prefix())
+		sb.WriteString(" WHERE ")
+		writeConditions(&sb, t.pWhere)
+	default:
 		return 0, ErrMissingOperation
 	}
+	sql := sb.String()
 	t.logger().Debug(sql)
 	stmt, err := t.dbConn.Prepare(sql)
 	defer func() {
@@ -965,29 +1124,6 @@ func (t *Table) Execute() (int64, error) {
 		return 0, err
 	}
 	return rst.RowsAffected()
-}
-
-// buildSqlQ returns num placeholders. MySQL and SQLite use anonymous ?
-// markers, PostgreSQL numbers its markers ($1, $2, ...) so an optional offset
-// lets multi row statements continue the numbering of the previous row.
-func (t *Table) buildSqlQ(num int, offset ...int) []string {
-	if num <= 0 {
-		return nil
-	}
-	start := 0
-	if len(offset) > 0 {
-		start = offset[0]
-	}
-	numbered := isPostgres(t.protocol)
-	rst := make([]string, num)
-	for i := 0; i < num; i++ {
-		if numbered {
-			rst[i] = "$" + strconv.Itoa(start+i+1)
-		} else {
-			rst[i] = "?"
-		}
-	}
-	return rst
 }
 
 // isPostgres reports whether the protocol targets PostgreSQL.

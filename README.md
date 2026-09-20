@@ -183,6 +183,14 @@ db.Table("users").
 
 **Note**: `Where`, `And`, and `Or` methods use `fmt.Sprintf` style formatting (e.g., `%d`, `%s`). Please ensure inputs are sanitized if they come from untrusted sources, or use `AndFilters` which handles values safely.
 
+### SQL assembly notes
+
+- Identifiers are quoted per engine: backticks for MySQL, standard double quotes for PostgreSQL/SQLite. Placeholders follow the engine too (`?` vs numbered `$1, $2, ...`, numbered continuously across multi-row inserts).
+- `Inserts` never modifies the `columns` slice you pass in, so the same slice can be reused (even across engines).
+- `Set("discount = '50%'")` keeps the expression as written; it is only run through `fmt.Sprintf` when you pass extra arguments.
+- NUL bytes are never written into a literal: MySQL gets `\0`, PostgreSQL/SQLite drop them (a raw NUL would truncate a SQLite statement or be rejected by PostgreSQL).
+- `Limit`/`LimitOffset` emit `LIMIT .. OFFSET ..` on PostgreSQL/SQLite and MySQL's `LIMIT m,n` on MySQL.
+
 ### Transactions
 
 Returning an error (or panicking) rolls the transaction back.
