@@ -1,11 +1,11 @@
 # sqlm
 
-sqlm is a simple, fast, and fluent SQL mapper for Golang. It supports MySQL and SQLite, providing a chainable API for building SQL queries with ease.
+sqlm is a simple, fast, and fluent SQL mapper for Golang. It supports MySQL, PostgreSQL and SQLite, providing a chainable API for building SQL queries with ease.
 
 ## Features
 
 - **Fluent API**: Chainable methods for building queries (`Table`, `Select`, `Where`, `Limit`, etc.).
-- **Multiple Drivers**: Built-in support for MySQL and SQLite.
+- **Multiple Drivers**: Built-in support for MySQL, PostgreSQL and SQLite.
 - **Connection Pooling**: Efficiently reuses database connections.
 - **Dynamic Filtering**: Easily build complex `WHERE` clauses using `AndFilters` with maps.
 - **Transactions**: Simple transaction management.
@@ -67,6 +67,41 @@ func main() {
 	defer db.Close()
 }
 ```
+
+### PostgreSQL
+
+PostgreSQL has no `LastInsertId`, identifier quoting is standard double quotes and parameters are numbered, so sqlm adapts those three points automatically:
+
+- quoted identifiers: `INSERT INTO "products" ("name") VALUES ($1)`
+- `Limit`/`LimitOffset` emit `LIMIT .. OFFSET ..` instead of MySQL's `LIMIT m,n`
+- `Insert`/`Inserts` return the number of affected rows
+
+The driver has to be registered under the same name as `Server.Protocol`, because that value is used as the `database/sql` driver name:
+
+```go
+import (
+
+	"github.com/w6xian/sqlm"
+	"github.com/w6xian/sqlm/store"
+)
+
+opt, _ := sqlm.NewOptionsWithServer(sqlm.Server{
+	Protocol:     sqlm.POSTGRES, // or "pg"
+	Host:         "127.0.0.1",
+	Port:         5432,
+	Username:     "postgres",
+	Password:     "secret",
+	Database:     "cloud",
+	MaxOpenConns: 10,
+	MaxIdleConns: 5,
+	MaxLifetime:  int(time.Minute),
+}, "cloud")
+drv, err := store.NewDriver(opt)
+sqlm.Use(drv)
+db := sqlm.NewInstance(context.Background(), "cloud")
+```
+
+A full JSONB example (create database, create table, write and read back) lives in [examples/postgres](examples/postgres/main.go).
 
 ### Insert
 
@@ -148,15 +183,25 @@ db.Table("users").
 
 **Note**: `Where`, `And`, and `Or` methods use `fmt.Sprintf` style formatting (e.g., `%d`, `%s`). Please ensure inputs are sanitized if they come from untrusted sources, or use `AndFilters` which handles values safely.
 
+### SQL assembly notes
+
+- Identifiers are quoted per engine: backticks for MySQL, standard double quotes for PostgreSQL/SQLite. Placeholders follow the engine too (`?` vs numbered `$1, $2, ...`, numbered continuously across multi-row inserts).
+- `Inserts` never modifies the `columns` slice you pass in, so the same slice can be reused (even across engines).
+- `Set("discount = '50%'")` keeps the expression as written; it is only run through `fmt.Sprintf` when you pass extra arguments.
+- NUL bytes are never written into a literal: MySQL gets `\0`, PostgreSQL/SQLite drop them (a raw NUL would truncate a SQLite statement or be rejected by PostgreSQL).
+- `Limit`/`LimitOffset` emit `LIMIT .. OFFSET ..` on PostgreSQL/SQLite and MySQL's `LIMIT m,n` on MySQL.
+
 ### Transactions
 
+Returning an error (or panicking) rolls the transaction back.
+
 ```go
-err := db.Action(func(tx *sqlm.Tx) error {
-    _, err := tx.Table("users").Insert(map[string]any{"name": "Dave"})
+_, err := db.Action(func(tx sqlm.ITable, args ...any) (int64, error) {
+    n, err := tx.Table("users").Insert(map[string]any{"name": "Dave"})
     if err != nil {
-        return err // Rollback
+        return 0, err // Rollback
     }
-    return nil // Commit
+    return n, nil // Commit
 })
 ```
 

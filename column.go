@@ -2,7 +2,7 @@ package sqlm
 
 import (
 	"database/sql"
-	"errors"
+	"fmt"
 	"strconv"
 )
 
@@ -12,10 +12,11 @@ func (col Column) Length() int {
 	return len(col)
 }
 func (col Column) Int() (int, error) {
-	if i, err := strconv.Atoi(string(col)); err == nil {
-		return i, nil
+	i, err := strconv.Atoi(string(col))
+	if err != nil {
+		return 0, fmt.Errorf("%w: %q", ErrNotNumeric, string(col))
 	}
-	return 0, errors.New("字段不存在")
+	return i, nil
 }
 
 func (col Column) Bool() bool {

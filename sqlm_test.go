@@ -1,119 +1,78 @@
 package sqlm_test
 
 import (
-	"context"
-	"os"
 	"testing"
 
-	"github.com/w6xian/sqlm"
-	"github.com/w6xian/sqlm/store"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestSqlite(t *testing.T) {
-	dbFile := "test.db"
-	opt, err := sqlm.NewOptionsWithServer(sqlm.Server{
-		Protocol:     "sqlite",
-		DSN:          dbFile,
-		MaxOpenConns: 10,
-	}, "sqlite_test")
-	if err != nil {
-		t.Fatal(err)
+// TestSqliteWalksPublicAPI runs one complete round trip through the public API
+// (instance -> schema -> write -> query -> update -> delete) on its own sqlite
+// file, asserting the data after every step instead of only checking errors.
+func TestSqliteWalksPublicAPI(t *testing.T) {
+	db, _ := newSQLite(t, "public_api")
+	createUsers(t, db)
+
+	for _, row := range []map[string]any{
+		{"name": "Alice", "age": 25, "score": 95.5},
+		{"name": "Bob", "age": 30, "score": 88.0},
+		{"name": "Charlie", "age": 35, "score": 70.0},
+	} {
+		id, err := db.Table("users").Insert(row)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, id, int64(1))
 	}
 
-	driver, err := store.NewDriver(opt)
-	if err != nil {
-		t.Fatal(err)
+	total, err := db.Table("users").GetCount()
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+
+	// Map 过滤器精确命中一行
+	row, err := db.Table("users").Select("name,age").AndFilters(map[string]any{"name": "Alice"}).Query()
+	require.NoError(t, err)
+	// Row.Length() 是列数：这里只取了两列
+	assert.Equal(t, 2, row.Length())
+	assert.Equal(t, "Alice", row.Get("name").String())
+	age, err := row.Get("age").Int64()
+	require.NoError(t, err)
+	assert.Equal(t, int64(25), age)
+
+	// 旧式 fmt.Sprintf 传参仍然可用
+	row, err = db.Table("users").Select("name").Where("age = %d", 30).Query()
+	require.NoError(t, err)
+	assert.Equal(t, "Bob", row.Get("name").String())
+
+	// Where 与 AndFilters 可以混用，AND 拼接
+	row, err = db.Table("users").Select("name").Where("score > %f", 80.0).AndFilters(map[string]any{"age": 30}).Query()
+	require.NoError(t, err)
+	assert.Equal(t, "Bob", row.Get("name").String())
+
+	affected, err := db.Table("users").AndFilters(map[string]any{"name": "Charlie"}).
+		Update(map[string]any{"score": 80}).Execute()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), affected)
+
+	row, err = db.Table("users").Select("score").AndFilters(map[string]any{"name": "Charlie"}).Query()
+	require.NoError(t, err)
+	score, err := row.Get("score").Float64()
+	require.NoError(t, err)
+	assert.Equal(t, float64(80), score)
+
+	affected, err = db.Table("users").AndFilters(map[string]any{"name": "Bob"}).Delete().Execute()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), affected)
+
+	total, err = db.Table("users").GetCount()
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+
+	names := []string{}
+	rows, err := db.Table("users").Select("name").Order("name").QueryMulti()
+	require.NoError(t, err)
+	require.Equal(t, 2, rows.Length())
+	for i := 0; i < rows.Length(); i++ {
+		names = append(names, rows.Index(i).Get("name").String())
 	}
-	sqlm.Use(driver)
-
-	ctx := context.Background()
-	db := sqlm.NewInstance(ctx, "sqlite_test")
-
-	// Create table
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT,
-		age INTEGER,
-		score REAL
-	)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Insert data
-	_, err = db.Exec("INSERT INTO users (name, age, score) VALUES (?, ?, ?)", "Alice", 25, 95.5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("INSERT INTO users (name, age, score) VALUES (?, ?, ?)", "Bob", 30, 88.0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("INSERT INTO users (name, age, score) VALUES (?, ?, ?)", "Charlie", 35, 70.0)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Run("Query with Filter (Map)", func(t *testing.T) {
-		rows, err := db.Table("users").Select("name,age").AndFilters(map[string]any{
-			"name": "Alice",
-		}).Query()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if rows == nil || rows.Length() == 0 {
-			t.Error("expected result for Alice")
-		}
-	})
-
-	t.Run("Query with Where (Literals - Compatibility)", func(t *testing.T) {
-		rows, err := db.Table("users").Select("name").Where("age = %d", 30).Query()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if rows == nil || rows.Length() == 0 {
-			t.Error("expected result for age 30")
-		}
-	})
-
-	t.Run("Query Mixed Filter and Where", func(t *testing.T) {
-		rows, err := db.Table("users").Select("name").Where("score > %f", 80.0).AndFilters(map[string]any{
-			"age": 30,
-		}).Query()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if rows != nil && rows.Length() > 0 {
-			// Found
-		}
-	})
-
-	t.Run("Update with Filter (Map)", func(t *testing.T) {
-		_, err := db.Table("users").AndFilters(map[string]any{
-			"name": "Charlie",
-		}).Update(map[string]any{
-			"score": 80,
-		}).Execute()
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("Delete with Filter", func(t *testing.T) {
-		_, err := db.Table("users").AndFilters(map[string]any{
-			"name": "Bob",
-		}).Delete().Execute()
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
-
-	// Cleanup
-	os.Remove(dbFile)
-}
-
-func BenchmarkTest(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		// do nothing
-	}
+	assert.Equal(t, []string{"Alice", "Charlie"}, names)
 }

@@ -5,13 +5,14 @@ import (
 	"time"
 )
 
+// Rows2MapRow indexes every row by the value of `col`. The cursor is left at
+// the beginning so the Rows stays reusable afterwards.
 func Rows2MapRow(rows *Rows, col string) map[string]*Row {
-	rst := make(map[string]*Row)
-	for rows.Next() != nil {
-		key := rows.Get(col).String()
-		rst[key] = rows.Row()
+	if rows == nil {
+		return map[string]*Row{}
 	}
-	rows.ResetIndex()
+	rst := rows.ToKeyMap(col)
+	_ = rows.ResetIndex()
 	return rst
 }
 

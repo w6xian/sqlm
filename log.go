@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 )
 
 // StdLog interface defines the logging contract
@@ -188,6 +189,101 @@ func (l baseLog) Panic(s string) {
 	if l.Level >= 2 {
 		fmt.Printf("[PANI]%s%s\n", l.prefix, s)
 	}
+}
+
+// NewNullLogger returns a logger writing nowhere.
+func NewNullLogger() *BaseLogger {
+	return NewBaseLogger(FATAL, "", io.Discard)
+}
+
+// NoopLogger implements StdLog and swallows everything. It is the default
+// logger used when none has been configured, so sqlm never panics because of a
+// missing logger.
+type NoopLogger struct{}
+
+func (l NoopLogger) Debug(s string) {}
+func (l NoopLogger) Info(s string)  {}
+func (l NoopLogger) Warn(s string)  {}
+func (l NoopLogger) Error(s string) {}
+func (l NoopLogger) Panic(s string) {}
+func (l NoopLogger) Fatal(s string) {}
+
+func NewNoopLogger() *NoopLogger { return &NoopLogger{} }
+
+// MemLogger is a StdLog implementation storing everything in memory.
+// Handy for tests and for asserting emitted SQL.
+type MemLogger struct {
+	mu     sync.Mutex
+	Level  LogLevel
+	Debug_ []string
+	Info_  []string
+	Warn_  []string
+	Error_ []string
+	Panic_ []string
+	Fatal_ []string
+}
+
+func NewMemLogger(level LogLevel) *MemLogger {
+	return &MemLogger{Level: level}
+}
+
+func (l *MemLogger) Debug(s string) { l.append(DEBUG, &l.Debug_, s) }
+func (l *MemLogger) Info(s string)  { l.append(INFO, &l.Info_, s) }
+func (l *MemLogger) Warn(s string)  { l.append(WARN, &l.Warn_, s) }
+func (l *MemLogger) Error(s string) { l.append(ERROR, &l.Error_, s) }
+func (l *MemLogger) Panic(s string) { l.append(ERROR, &l.Panic_, s) }
+func (l *MemLogger) Fatal(s string) { l.append(FATAL, &l.Fatal_, s) }
+
+func (l *MemLogger) append(level LogLevel, dst *[]string, s string) {
+	if l.Level < level {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	*dst = append(*dst, s)
+}
+
+// All returns every logged message, level prefixed, in emission order is not
+// guaranteed: use Messages(level) instead.
+func (l *MemLogger) Messages(level LogLevel) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch level {
+	case DEBUG:
+		return append([]string(nil), l.Debug_...)
+	case INFO:
+		return append([]string(nil), l.Info_...)
+	case WARN:
+		return append([]string(nil), l.Warn_...)
+	case FATAL:
+		return append([]string(nil), l.Fatal_...)
+	default:
+		// Panic() 记录在指针自己的桶里，但语义上属于 ERROR
+		out := append([]string(nil), l.Error_...)
+		return append(out, l.Panic_...)
+	}
+}
+
+// Last returns the most recent message of the highest available level and is
+// handy to assert on the last statement emitted by sqlm.
+func (l *MemLogger) Last() string {
+	for _, level := range []LogLevel{DEBUG, TRACE, INFO, WARN, ERROR, FATAL} {
+		if msgs := l.Messages(level); len(msgs) > 0 {
+			return msgs[len(msgs)-1]
+		}
+	}
+	return ""
+}
+
+func (l *MemLogger) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Debug_ = nil
+	l.Info_ = nil
+	l.Warn_ = nil
+	l.Error_ = nil
+	l.Panic_ = nil
+	l.Fatal_ = nil
 }
 
 // 1

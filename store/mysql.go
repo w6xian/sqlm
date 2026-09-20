@@ -5,13 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
-	"errors"
+	"github.com/pkg/errors"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/w6xian/sqlm"
-	"github.com/w6xian/sqlm/utils"
 )
 
 type Mysql struct {
@@ -24,12 +22,25 @@ type Mysql struct {
 }
 
 func NewMysql(opt *sqlm.Options) (Driver, error) {
-	return &Mysql{options: opt, conf: opt.Server, log: opt.GetLogger(), isConnected: false}, nil
-
+	if opt == nil || opt.Server == nil {
+		return nil, errors.New("mysql: options is required")
+	}
+	return &Mysql{options: opt, conf: opt.Server, log: opt.Logger(), isConnected: false}, nil
 }
 
 func (m *Mysql) NewConn(conn *sql.DB, isConnected bool) (sqlm.DbConn, error) {
 	return &Mysql{options: m.options, conf: m.conf, log: m.log, connection: conn, isConnected: isConnected}, nil
+}
+
+// NewServerConn opens an independent connection to another server (replica)
+// reusing the driver options. It implements sqlm.ServerSwitcher.
+func (m *Mysql) NewServerConn(ctx context.Context, svr *sqlm.Server) (sqlm.DbConn, error) {
+	if svr == nil {
+		return nil, errors.New("mysql: server config is nil")
+	}
+	opts := cloneOptions(m.options, svr)
+	n := &Mysql{options: opts, conf: svr, log: opts.Logger(), isConnected: false}
+	return n.Connect(ctx)
 }
 
 func (m *Mysql) Conf() *sqlm.Server {
@@ -41,62 +52,58 @@ func (m *Mysql) Options() *sqlm.Options {
 }
 
 func (m *Mysql) Ping() error {
-	if err := m.check(); err != nil {
+	if err := checkConnection(m.connection); err != nil {
 		return err
 	}
-	return m.connection.PingContext(m.ctx)
+	return m.connection.PingContext(ctxOrBackground(m.ctx))
 }
 func (m *Mysql) Conn() (*sql.DB, error) {
+	if err := checkConnection(m.connection); err != nil {
+		return nil, err
+	}
 	return m.connection, nil
 }
 func (m *Mysql) Close() error {
-	if err := m.check(); err != nil {
+	if err := checkConnection(m.connection); err != nil {
 		return err
 	}
 	return m.connection.Close()
 }
 
 func (m *Mysql) check() error {
-	if m.connection == nil {
-		return errors.New("请设置数据库链接")
-	}
-	if err := m.connection.Ping(); err != nil {
-		return err
-	}
-	return nil
+	return checkConnection(m.connection)
 }
 
 func (m *Mysql) Connect(ctx context.Context) (sqlm.DbConn, error) {
+	ctx = ctxOrBackground(ctx)
 	if m.connection != nil {
-		if err := m.connection.Ping(); err == nil {
+		if m.isConnected {
+			// 已建立的连接池直接复用，避免每次取实例都多一次 Ping 往返
+			newConn, _ := m.NewConn(m.connection, true)
+			newConn.WithContext(ctx)
+			return newConn, nil
+		}
+		if err := m.connection.PingContext(ctx); err == nil {
 			newConn, _ := m.NewConn(m.connection, true)
 			newConn.WithContext(ctx)
 			return newConn, nil
 		}
 	}
 
-	source := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", m.conf.Username, m.conf.Password, m.conf.Host, m.conf.Port, m.conf.Database, m.conf.Charset)
-
-	if strings.HasPrefix(m.conf.Host, "unix:") {
-		parts := strings.SplitN(m.conf.Host, ":", 2)
-		socketPath := parts[1]
-		source = fmt.Sprintf("%s:%s@unix(%s)/%s?charset=%s", m.conf.Username, m.conf.Password, socketPath, m.conf.Database, m.conf.Charset)
-	}
+	source := mysqlSource(m.conf)
 
 	conn, err := sql.Open(
 		m.conf.Protocol,
 		source,
 	)
 	if err != nil {
+		return nil, errors.Wrapf(err, "failed to open db with protocol: %s", m.conf.Protocol)
+	}
+	applyPool(conn, m.conf)
+	if err = conn.PingContext(ctx); err != nil {
+		conn.Close()
 		return nil, err
 	}
-	err = conn.Ping()
-	if err != nil {
-		return nil, err
-	}
-	conn.SetMaxOpenConns(m.conf.MaxOpenConns)
-	conn.SetMaxIdleConns(m.conf.MaxIdleConns)
-	conn.SetConnMaxLifetime(time.Duration(m.conf.MaxLifetime))
 
 	m.connection = conn
 	m.isConnected = true
@@ -108,44 +115,47 @@ func (m *Mysql) Connect(ctx context.Context) (sqlm.DbConn, error) {
 	newConn.WithContext(ctx)
 	return newConn, nil
 }
+
+// mysqlSource builds the DSN, supporting both tcp hosts and unix sockets.
+func mysqlSource(conf *sqlm.Server) string {
+	if strings.HasPrefix(conf.Host, "unix:") {
+		socketPath := strings.TrimPrefix(conf.Host, "unix:")
+		return fmt.Sprintf("%s:%s@unix(%s)/%s?charset=%s", conf.Username, conf.Password, socketPath, conf.Database, conf.Charset)
+	}
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", conf.Username, conf.Password, conf.Host, conf.Port, conf.Database, conf.Charset)
+}
+
 func (m *Mysql) WithContext(ctx context.Context) {
-	m.ctx = ctx
+	m.ctx = ctxOrBackground(ctx)
 }
 
 func (m *Mysql) Delete(query string, args ...any) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
-		return nil, errors.New("does not connected")
+		return nil, err
 	}
-	return m.connection.QueryContext(m.ctx, query, args...)
+	return m.connection.QueryContext(ctxOrBackground(m.ctx), query, args...)
 }
 
 func (m *Mysql) Prepare(query string) (*sql.Stmt, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	return m.connection.PrepareContext(m.ctx, query)
+	return m.connection.PrepareContext(ctxOrBackground(m.ctx), query)
 }
 func (m *Mysql) Query(query string, args ...any) (*sql.Rows, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	return m.connection.QueryContext(m.ctx, query, args...)
+	return m.connection.QueryContext(ctxOrBackground(m.ctx), query, args...)
 }
 
 func (m *Mysql) Exec(query string, args ...any) (sql.Result, error) {
 	if err := m.check(); err != nil {
 		return nil, err
 	}
-	stmt, err := m.connection.PrepareContext(m.ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer stmt.Close()
-	rst, err := stmt.ExecContext(m.ctx, args...)
-	if err != nil {
-		return nil, err
-	}
-	return rst, nil
+	// ExecContext prepares internally (and reuses the prepared statement when
+	// available), which saves one round trip versus an explicit Prepare.
+	return m.connection.ExecContext(ctxOrBackground(m.ctx), query, args...)
 }
 
 func (m *Mysql) Insert(pTable string, columns []string, data []any) (int64, error) {
@@ -155,17 +165,8 @@ func (m *Mysql) Insert(pTable string, columns []string, data []any) (int64, erro
 	if err := m.check(); err != nil {
 		return 0, err
 	}
-	for k, v := range columns {
-		columns[k] = "`" + strings.Trim(v, "`") + "`"
-	}
-	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", pTable, strings.Join(columns, ","), strings.Join(utils.BuildSqlQ(len(data)), ","))
-
-	stmt, err := m.connection.PrepareContext(m.ctx, sql)
-	if err != nil {
-		return 0, err
-	}
-	defer stmt.Close()
-	rst, err := stmt.ExecContext(m.ctx, data...)
+	sqlStr := insertSQL(pTable, columns, 1)
+	rst, err := m.connection.ExecContext(ctxOrBackground(m.ctx), sqlStr, data...)
 	if err != nil {
 		return 0, err
 	}
@@ -176,43 +177,15 @@ func (m *Mysql) Insert(pTable string, columns []string, data []any) (int64, erro
  * 为了执行效率，请自行保证query中需要的参数个数与后面的参数中数组长度相对应
  */
 func (m *Mysql) Inserts(pTable string, columns []string, data [][]any) (int64, error) {
-
 	if err := m.check(); err != nil {
 		return 0, err
 	}
-
-	colLen := len(columns)
-	if colLen <= 0 {
-		return 0, errors.New("请提供字段")
-	}
-	for k, v := range columns {
-		columns[k] = "`" + strings.Trim(v, "`") + "`"
-	}
-	qstr := "(" + strings.Join(utils.BuildSqlQ(len(columns)), ",") + ")"
-	qarr := []string{}
-	for _, v := range data {
-		if colLen != len(v) {
-			return 0, errors.New("请确保column长度统一")
-		}
-		qarr = append(qarr, qstr)
-	}
-	val := []any{}
-	for {
-		if len(data) > 1 {
-			break
-		}
-		d := data[0]
-		val = append(val, d...)
-		data = data[1:]
-	}
-
-	sql := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES %s", pTable, strings.Join(columns, ","), strings.Join(qarr, ","))
-	stmt, err := m.connection.PrepareContext(m.ctx, sql)
+	val, err := flattenValues(len(columns), data)
 	if err != nil {
 		return 0, err
 	}
-	defer stmt.Close()
-	rst, err := stmt.ExecContext(m.ctx, val...)
+	sqlStr := insertSQL(pTable, columns, len(data))
+	rst, err := m.connection.ExecContext(ctxOrBackground(m.ctx), sqlStr, val...)
 	if err != nil {
 		return 0, err
 	}
