@@ -191,6 +191,58 @@ db.Table("users").
 - NUL bytes are never written into a literal: MySQL gets `\0`, PostgreSQL/SQLite drop them (a raw NUL would truncate a SQLite statement or be rejected by PostgreSQL).
 - `Limit`/`LimitOffset` emit `LIMIT .. OFFSET ..` on PostgreSQL/SQLite and MySQL's `LIMIT m,n` on MySQL.
 
+### Observability hooks
+
+Every statement can be observed — tracing, slow query logs, metrics — without
+touching the call sites. A hook is a read only observer: it cannot change the
+statement and its result is ignored.
+
+```go
+opt.SetHooks(sqlm.HookFunc(func(ctx context.Context, info *sqlm.StmtInfo) {
+    if info.Duration > 200*time.Millisecond {
+        log.Warn("slow query", "op", info.Op, "table", info.Table, "digest", info.Digest)
+    }
+}))
+```
+
+`StmtInfo` carries `Op` (`select`/`insert`/`update`/`delete`/`exec`), the
+un-prefixed `Table`, `Rows`, `RowsKnown`, `Duration`, `StartAt` and `Err`.
+`StartAt` + `Duration` let OpenTelemetry replay a span with
+`trace.WithTimestamp`, so a single callback is enough — no Start/End pair:
+
+```go
+_, span := tracer.Start(ctx, "db."+info.Op, trace.WithTimestamp(info.StartAt))
+defer span.End(trace.WithTimestamp(info.StartAt.Add(info.Duration)))
+```
+
+Three registration scopes, all optional:
+
+| Scope | Entry |
+| --- | --- |
+| every instance created afterwards | `sqlm.WithHooks(h)` / `opt.SetHooks(h)` |
+| one instance | `db.SetHooks(h)` |
+| one statement | `db.Table("users").UseHook(h).QueryMulti()` |
+
+Notes that matter:
+
+- **`Digest`, not the raw statement.** sqlm builds SQL by concatenation, so the
+  statement *is* business data. `Digest` replaces literals with `?` and is the
+  only shape safe for span names and metric labels (a raw statement would also
+  blow up cardinality). Use `sqlm.NewSQLHook(limit, fn)` when you really need
+  the full text — it is opt in and truncated.
+- **Request context.** `db.Table(...)` carries the instance context. To get the
+  request one (trace id, deadline) use `db.TableWithContext(ctx, "users")` or
+  `Table.WithContext(ctx)`.
+- **`RowsKnown`.** `Table.Rows()`/`Db.Rows()` hand out a raw cursor: the row
+  count is unknown and reported as `false` instead of a fake `0`.
+- **Hooks never break the statement.** A panicking hook is recovered; no hook
+  registered means no timing, no digest, no allocation on the hot path.
+
+`Db.SetHooks` replaces everything the instance inherited from the options, so
+re-add shared hooks (`db.SetHooks(metrics, spans)`) if you still want them.
+
+Runnable sample: `go run ./examples/hook`.
+
 ### Transactions
 
 Returning an error (or panicking) rolls the transaction back.

@@ -24,6 +24,15 @@ func WithLogger(logger StdLog) Option {
 	}
 }
 
+// WithHooks 注册进程级钩子：之后建出来的每个 Db 实例都会带上它们。
+//
+// 钩子只观测、不改变执行；想知道一次语句的详情见 StmtInfo。
+func WithHooks(hooks ...Hook) Option {
+	return func(o *Options) {
+		o.SetHooks(hooks...)
+	}
+}
+
 func WithMysqlServer(opts ...ServerOption) Option {
 	return func(o *Options) {
 		if o.Server == nil {
@@ -145,7 +154,22 @@ type Options struct {
 	Conn DbConn
 	Mode string `json:"mode"`
 	Data string `json:"data"`
+	// hooks 进程级钩子：建 Db 时复制给实例，之后可用 Db.SetHooks 覆盖。
+	hooks []Hook
 }
+
+// SetHooks 覆盖配置的钩子列表（nil 表示关掉）。
+func (o *Options) SetHooks(hooks ...Hook) {
+	o.hooks = nil
+	for _, h := range hooks {
+		if h != nil {
+			o.hooks = append(o.hooks, h)
+		}
+	}
+}
+
+// Hooks 返回配置上的钩子。
+func (o *Options) Hooks() []Hook { return o.hooks }
 
 func (c *Options) AddSlave(svr *Server) {
 	c.Slavers = append(c.Slavers, svr)

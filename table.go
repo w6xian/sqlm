@@ -36,6 +36,9 @@ type Table struct {
 	db       *Db
 	log      StdLog
 	ctx      context.Context
+	// hooks 语句级钩子；Db 级钩子不复制进来，派发时从 t.db 现取，
+	// 免得同一个钩子被两组各调一次。
+	hooks []Hook
 }
 
 func NewTable(tle string) *Table {
@@ -77,6 +80,29 @@ func (t *Table) UseLog(log StdLog) *Table {
 
 func (t *Table) UseConn(conn TxConn) *Table {
 	t.dbConn = conn
+	return t
+}
+
+// WithContext 把请求级 ctx 绑到这条语句上。
+//
+// 只有带上它，钩子里的 span 才挂得到请求链路上——Db.Table 用的是 Db 自己的
+// ctx（进程级），那上面没有 trace id。
+func (t *Table) WithContext(ctx context.Context) *Table {
+	if ctx != nil {
+		t.ctx = ctx
+	}
+	return t
+}
+
+// UseHook 给这一条语句单独挂钩子，Db 级钩子之外额外生效。
+//
+// 典型用法：某张表特别敏感，给它挂一个不打 SQL、只报耗时的钩子。
+func (t *Table) UseHook(hooks ...Hook) *Table {
+	for _, h := range hooks {
+		if h != nil {
+			t.hooks = append(t.hooks, h)
+		}
+	}
 	return t
 }
 
@@ -171,23 +197,80 @@ func (t *Table) Insert(data map[string]any) (int64, error) {
 	sb.WriteString(") VALUES (")
 	t.writePlaceholders(&sb, len(values), 0)
 	sb.WriteByte(')')
-	sql := sb.String()
-	t.logger().Debug(sql)
+	query := sb.String()
+	t.logger().Debug(query)
 
-	stmt, err := t.dbConn.Prepare(sql)
-	defer func() {
-		if stmt != nil {
-			stmt.Close()
-		}
-	}()
-	if err != nil {
-		return 0, err
-	}
-	rst, err := stmt.ExecContext(t.context(), values...)
+	rst, err := t.execStmt(OpInsert, query, values...)
 	if err != nil {
 		return 0, err
 	}
 	return lastInsertID(rst)
+}
+
+// execStmt 是所有写语句的唯一出口：Prepare -> ExecContext -> 钩子。
+//
+// 新增写操作必须走这里，钩子才不会漏——"每个入口各打一次点"迟早会漏一个。
+func (t *Table) execStmt(op, query string, args ...any) (sql.Result, error) {
+	start := t.stmtStart()
+	stmt, err := t.dbConn.Prepare(query)
+	if stmt != nil {
+		defer stmt.Close()
+	}
+	if err != nil {
+		t.stmtDone(start, op, query, 0, false, err)
+		return nil, err
+	}
+	rst, err := stmt.ExecContext(t.context(), args...)
+	if err != nil {
+		t.stmtDone(start, op, query, 0, false, err)
+		return nil, err
+	}
+	rows, known := int64(0), false
+	if rst != nil {
+		if n, e := rst.RowsAffected(); e == nil {
+			rows, known = n, true
+		}
+	}
+	t.stmtDone(start, op, query, rows, known, nil)
+	return rst, nil
+}
+
+// stmtStart 记下起始时刻。没钩子时不计时长，调用方照常用零值。
+func (t *Table) stmtStart() time.Time {
+	if !t.hasHooks() {
+		return time.Time{}
+	}
+	return time.Now()
+}
+
+// stmtDone 派发一次语句结束事件；start 为零值表示没有钩子，直接返回。
+func (t *Table) stmtDone(start time.Time, op, query string, rows int64, known bool, err error) {
+	if start.IsZero() {
+		return
+	}
+	var shared []Hook
+	if t.db != nil {
+		shared = t.db.hooks
+	}
+	info := &StmtInfo{
+		Op:        op,
+		Table:     t.pTable,
+		Digest:    DigestSQL(query),
+		Rows:      rows,
+		RowsKnown: known,
+		Duration:  time.Since(start),
+		StartAt:   start,
+		Err:       err,
+	}
+	emitBoth(t.context(), shared, t.hooks, info, query)
+}
+
+// hasHooks 语句级或 Db 级是否挂了钩子。
+func (t *Table) hasHooks() bool {
+	if len(t.hooks) > 0 {
+		return true
+	}
+	return t.db != nil && len(t.db.hooks) > 0
 }
 
 // context never returns nil: a missing context would panic in database/sql.
@@ -336,18 +419,9 @@ func (t *Table) Inserts(columns []string, data [][]any) (int64, error) {
 		sb.WriteByte(')')
 		val = append(val, v...)
 	}
-	sql := sb.String()
-	t.logger().Debug(sql)
-	stmt, err := t.dbConn.Prepare(sql)
-	defer func() {
-		if stmt != nil {
-			stmt.Close()
-		}
-	}()
-	if err != nil {
-		return 0, err
-	}
-	rst, err := stmt.ExecContext(t.context(), val...)
+	query := sb.String()
+	t.logger().Debug(query)
+	rst, err := t.execStmt(OpInsert, query, val...)
 	if err != nil {
 		return 0, err
 	}
@@ -667,22 +741,35 @@ func (t *Table) Query() (*Row, error) {
 		return nil, err
 	}
 	query := t.getSql()
+	start := t.stmtStart()
 	rows, err := t.dbConn.Query(query)
 	if err != nil {
+		t.stmtDone(start, OpSelect, query, 0, false, err)
 		return nil, err
 	}
 	// GetRow owns rows from here and always closes them.
-	return GetRow(rows)
+	row, err := GetRow(rows)
+	n := int64(0)
+	if row != nil {
+		n = 1
+	}
+	t.stmtDone(start, OpSelect, query, n, true, err)
+	return row, err
 }
 
 // Rows exposes the underlying *sql.Rows. The caller owns them and MUST close
 // them once done.
+//
+// 钩子拿不到行数：游标交出去之后读多少行与库无关，RowsKnown 会是 false。
 func (t *Table) Rows() (*sql.Rows, error) {
 	if err := t.check(); err != nil {
 		return nil, err
 	}
 	query := t.getSql()
-	return t.dbConn.Query(query)
+	start := t.stmtStart()
+	rows, err := t.dbConn.Query(query)
+	t.stmtDone(start, OpSelect, query, 0, false, err)
+	return rows, err
 }
 
 func (t *Table) QueryMulti() (*Rows, error) {
@@ -690,12 +777,20 @@ func (t *Table) QueryMulti() (*Rows, error) {
 		return nil, err
 	}
 	query := t.getSql()
+	start := t.stmtStart()
 	rows, err := t.dbConn.Query(query)
 	if err != nil {
+		t.stmtDone(start, OpSelect, query, 0, true, err)
 		return nil, err
 	}
 	// GetRows owns rows from here and always closes them.
-	return GetRows(rows)
+	res, err := GetRows(rows)
+	n := int64(0)
+	if res != nil {
+		n = int64(res.Length())
+	}
+	t.stmtDone(start, OpSelect, query, n, true, err)
+	return res, err
 }
 
 func (t *Table) Scan(target any) error {
@@ -1108,18 +1203,15 @@ func (t *Table) Execute() (int64, error) {
 	default:
 		return 0, ErrMissingOperation
 	}
-	sql := sb.String()
-	t.logger().Debug(sql)
-	stmt, err := t.dbConn.Prepare(sql)
-	defer func() {
-		if stmt != nil {
-			stmt.Close()
-		}
-	}()
-	if err != nil {
-		return 0, err
+	query := sb.String()
+	t.logger().Debug(query)
+	var op string
+	if t.pOption == "delete" {
+		op = OpDelete
+	} else {
+		op = OpUpdate
 	}
-	rst, err := stmt.ExecContext(t.context())
+	rst, err := t.execStmt(op, query)
 	if err != nil {
 		return 0, err
 	}

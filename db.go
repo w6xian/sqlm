@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/w6xian/sqlm/utils"
 )
@@ -281,6 +282,10 @@ func TryInstance(ctx context.Context, name string) (*Db, error) {
 // so callers never dereference a nil pointer.
 func newDb(ctx context.Context, svr *Server, sm *Sqlm, prevErr error) *Db {
 	dbcon := &Db{server: svr, log: sm.log, ctx: ctx}
+	// 配置里挂的钩子是进程级的默认：实例建好就带上，之后可用 SetHooks 覆盖。
+	if opt := sm.getOpts(); opt != nil {
+		dbcon.hooks = opt.hooks
+	}
 	if dbcon.log == nil {
 		dbcon.log = sm.getOpts().log
 	}
@@ -340,7 +345,23 @@ type Db struct {
 	log    StdLog
 	ctx    context.Context
 	err    error
+	// hooks 实例级钩子：所有由它派生的 Table 都会派发到这里。
+	hooks []Hook
 }
+
+// SetHooks 覆盖实例的钩子列表（nil 表示关掉）。
+func (d *Db) SetHooks(hooks ...Hook) *Db {
+	d.hooks = nil
+	for _, h := range hooks {
+		if h != nil {
+			d.hooks = append(d.hooks, h)
+		}
+	}
+	return d
+}
+
+// Hooks 返回实例当前的钩子，未设置时为 nil。
+func (d *Db) Hooks() []Hook { return d.hooks }
 
 // Err returns the error met while creating the instance (if any).
 func (d *Db) Err() error {
@@ -353,6 +374,17 @@ func (d *Db) Ctx() context.Context {
 		return context.Background()
 	}
 	return d.ctx
+}
+
+// WithContext 把请求级 ctx 绑到实例上，之后由它派生的语句都带着这个 ctx。
+//
+// 连接池里的实例通常是 Background 建的；借出来之后调一次，
+// 钩子（span / 慢查询日志）就挂得到请求链路上。nil 表示不改。
+func (d *Db) WithContext(ctx context.Context) *Db {
+	if ctx != nil {
+		d.ctx = ctx
+	}
+	return d
 }
 
 func (d *Db) Close() {
@@ -376,9 +408,44 @@ func (d *Db) Log() StdLog {
 
 // Table returns a new query builder bound to the instance connection.
 func (d *Db) Table(tbl string) *Table {
+	return d.TableWithContext(d.Ctx(), tbl)
+}
+
+// TableWithContext 同 Table，但绑定请求级 ctx。
+//
+// 这是让钩子（span / 慢查询日志）挂到请求链路上的入口：
+// Db 自带的 ctx 是实例级的，上面没有 trace id。
+func (d *Db) TableWithContext(ctx context.Context, tbl string) *Table {
 	svr := d.server
 	protocol := utils.GetOrDefault(svr.Protocol, MYSQL)
-	return Tbx(d.Ctx(), tbl).UseLog(d.Log()).Use(d).UseConn(d.conn).PreTable(svr.Pretable).SetProtocol(protocol)
+	if ctx == nil {
+		ctx = d.Ctx()
+	}
+	return Tbx(ctx, tbl).UseLog(d.Log()).Use(d).UseConn(d.conn).PreTable(svr.Pretable).SetProtocol(protocol)
+}
+
+// stmtStart / stmtDone 是实例级（原始 SQL）通路的打点：
+// 走 Table 的语句由 Table.stmtDone 负责，两条路不重叠。
+func (d *Db) stmtStart() time.Time {
+	if len(d.hooks) == 0 {
+		return time.Time{}
+	}
+	return time.Now()
+}
+
+func (d *Db) stmtDone(start time.Time, op, query string, rows int64, known bool, err error) {
+	if start.IsZero() {
+		return
+	}
+	emitStmt(d.Ctx(), d.hooks, &StmtInfo{
+		Op:        op,
+		Digest:    DigestSQL(query),
+		Rows:      rows,
+		RowsKnown: known,
+		Duration:  time.Since(start),
+		StartAt:   start,
+		Err:       err,
+	}, query)
 }
 
 func (d *Db) TableName(tbl string) string {
@@ -410,24 +477,40 @@ func (d *Db) Query(query string, args ...any) (*Row, error) {
 	if err := d.checkConn(); err != nil {
 		return nil, err
 	}
+	start := d.stmtStart()
 	rows, err := d.conn.Query(query, args...)
 	if err != nil {
+		d.stmtDone(start, OpSelect, query, 0, true, err)
 		return nil, err
 	}
 	// GetRow takes the ownership of rows and always closes it.
-	return GetRow(rows)
+	row, err := GetRow(rows)
+	n := int64(0)
+	if row != nil {
+		n = 1
+	}
+	d.stmtDone(start, OpSelect, query, n, true, err)
+	return row, err
 }
 
 func (d *Db) QueryMulti(query string, args ...any) (*Rows, error) {
 	if err := d.checkConn(); err != nil {
 		return nil, err
 	}
+	start := d.stmtStart()
 	rows, err := d.conn.Query(query, args...)
 	if err != nil {
+		d.stmtDone(start, OpSelect, query, 0, true, err)
 		return nil, err
 	}
 	// GetRows takes the ownership of rows and always closes it.
-	return GetRows(rows)
+	res, err := GetRows(rows)
+	n := int64(0)
+	if res != nil {
+		n = int64(res.Length())
+	}
+	d.stmtDone(start, OpSelect, query, n, true, err)
+	return res, err
 }
 
 // Rows exposes the raw *sql.Rows. The caller owns and must close them.
@@ -435,7 +518,11 @@ func (d *Db) Rows(query string, args ...any) (*sql.Rows, error) {
 	if err := d.checkConn(); err != nil {
 		return nil, err
 	}
-	return d.conn.Query(query, args...)
+	start := d.stmtStart()
+	rows, err := d.conn.Query(query, args...)
+	// 游标交出去了，行数无从得知
+	d.stmtDone(start, OpSelect, query, 0, false, err)
+	return rows, err
 }
 
 func (m *Db) MaxId(tbl string, args ...string) sql.NullInt64 {
@@ -454,7 +541,16 @@ func (d *Db) Exec(query string, args ...any) (sql.Result, error) {
 	if err := d.checkConn(); err != nil {
 		return nil, err
 	}
-	return d.conn.Exec(query, args...)
+	start := d.stmtStart()
+	rst, err := d.conn.Exec(query, args...)
+	rows, known := int64(0), false
+	if rst != nil {
+		if n, e := rst.RowsAffected(); e == nil {
+			rows, known = n, true
+		}
+	}
+	d.stmtDone(start, OpExec, query, rows, known, err)
+	return rst, err
 }
 
 func (d *Db) Conn() (*sql.DB, error) {
@@ -495,7 +591,7 @@ func (d *Db) Action(exec ActionExec) (int64, error) {
 			panic(p)
 		}
 	}()
-	tx := &Tx{db: d, ctx: d.Ctx()}
+	tx := &Tx{db: d, ctx: d.Ctx(), hooks: d.hooks}
 	tx.Use(_tx)
 	ok, err := exec(tx)
 	if err != nil {
