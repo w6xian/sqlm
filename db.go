@@ -282,6 +282,12 @@ func TryInstance(ctx context.Context, name string) (*Db, error) {
 // so callers never dereference a nil pointer.
 func newDb(ctx context.Context, svr *Server, sm *Sqlm, prevErr error) *Db {
 	dbcon := &Db{server: svr, log: sm.log, ctx: ctx}
+	// 主连接 = 实例注册的主驱动连接。从库实例靠它实现 UseMaster；
+	// 放在错误返回之前：主库连接可用时，建连失败的从库实例仍能把
+	// 语句打回主库。
+	if sm != nil {
+		dbcon.major = sm.dbcon
+	}
 	// 配置里挂的钩子是进程级的默认：实例建好就带上，之后可用 SetHooks 覆盖。
 	if opt := sm.getOpts(); opt != nil {
 		dbcon.hooks = opt.hooks
@@ -347,6 +353,9 @@ type Db struct {
 	err    error
 	// hooks 实例级钩子：所有由它派生的 Table 都会派发到这里。
 	hooks []Hook
+	// major 实例注册的主连接：从库实例上 Table.UseMaster 靠它把
+	// 单条语句打回主库；主库实例上它与自身连接等价。
+	major TxConn
 }
 
 // SetHooks 覆盖实例的钩子列表（nil 表示关掉）。

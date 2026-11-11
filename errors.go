@@ -39,4 +39,12 @@ var (
 
 	// ErrNotNumeric is returned when a column cannot be read as a number.
 	ErrNotNumeric = errors.New("sqlm: 字段不是数字")
+
+	// ErrNoMaster is returned when a statement asks for the primary but the
+	// instance has no usable master connection (UseMaster).
+	ErrNoMaster = errors.New("sqlm: 没有可用的主库连接")
+
+	// ErrInTransaction is returned when UseMaster is used inside a
+	// transaction: the statement would escape the transaction.
+	ErrInTransaction = errors.New("sqlm: 事务内不能切换主库")
 )

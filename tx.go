@@ -52,6 +52,8 @@ func (tx *Tx) Table(tbl string) *Table {
 	}
 	protocol := utils.GetOrDefault(svr.Protocol, MYSQL)
 	t := Tbx(tx.ctxOrDefault(), tbl).UseLog(tx.db.Log()).PreTable(svr.Pretable).SetProtocol(protocol)
+	// 绑在事务连接上的语句不允许 UseMaster：连接一切换，语句就逃逸出事务了。
+	t.txBound = true
 	if tx.db != nil {
 		t.Use(tx.db)
 		return t.UseConn(tx.connection)

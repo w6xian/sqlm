@@ -39,6 +39,14 @@ type Table struct {
 	// hooks 语句级钩子；Db 级钩子不复制进来，派发时从 t.db 现取，
 	// 免得同一个钩子被两组各调一次。
 	hooks []Hook
+	// schema 语句级的 schema/db 限定（UseMaster 设置），只作用于主表。
+	schema string
+	// useMaster 语句要求走主库；txBound 表示这条语句绑在事务连接上。
+	// 两者都在 check() 里裁决：事务内拒绝、无主连接报错，绝不悄悄回退从库。
+	useMaster bool
+	txBound   bool
+	// major 主库连接，来自实例注册的主连接（Db.major）。
+	major TxConn
 }
 
 func NewTable(tle string) *Table {
@@ -83,6 +91,59 @@ func (t *Table) UseConn(conn TxConn) *Table {
 	return t
 }
 
+// UseOption 是 UseMaster 的可选项。
+type UseOption func(*useConfig)
+
+type useConfig struct {
+	prefix *string
+}
+
+// UseTablePrefix 覆盖本条语句的表前缀，不改实例的 Pretable 配置。
+//
+// 典型场景：从库实例的 Pretable 与主库不一致，或者一张按年分表
+// （com_regions_2026）想复用同一套前缀规则。
+func UseTablePrefix(prefix string) UseOption {
+	return func(c *useConfig) { c.prefix = &prefix }
+}
+
+// UseMaster 把这一条语句打到主库连接上，并可选限定 schema。
+//
+// 典型场景：Slaver() 借来的读实例上，某条查询必须读主库（刚写完立刻读、
+// 强一致计数）；或明确指定 PostgreSQL 的 schema / MySQL 的库名：
+//
+//	db.Table("com_regions_2026").UseMaster("public", sqlm.UseTablePrefix("mi_")).
+//	    Select("*").Where("id = %d", 1).Query()
+//
+// 行为约定：
+//   - schema 为空串表示不改 schema；非空时主表变成 schema.前缀+表名
+//     （SQLite 需要 ATTACH 过的名字，否则驱动报错）。
+//   - 连接切到实例注册的主连接；Db 自己建连失败但主连接可用时也能用。
+//   - 事务内禁止：语句会逃逸出事务，check 时返回 ErrInTransaction。
+//   - 解析不到主连接时 check 返回 ErrNoMaster——宁可失败也不悄悄用从库。
+//   - JOIN 的表不受 schema 影响，沿用各自传入的名字。
+func (t *Table) UseMaster(schema string, opts ...UseOption) *Table {
+	t.useMaster = true
+	if schema != "" {
+		t.schema = schema
+	}
+	cfg := useConfig{}
+	for _, o := range opts {
+		if o != nil {
+			o(&cfg)
+		}
+	}
+	if cfg.prefix != nil {
+		t.pPre = *cfg.prefix
+	}
+	if t.db != nil {
+		t.major = t.db.major
+	}
+	if t.major != nil {
+		t.dbConn = t.major
+	}
+	return t
+}
+
 // WithContext 把请求级 ctx 绑到这条语句上。
 //
 // 只有带上它，钩子里的 span 才挂得到请求链路上——Db.Table 用的是 Db 自己的
@@ -116,12 +177,18 @@ func (t *Table) From(tle string) *Table {
 // 只用 strings.Count/IndexByte 判断，不再 strings.Split 出一个切片再 Sprintf：
 // 每次拼装都要走这里，拆片的开销是纯粹的浪费。
 func (t *Table) table_prefix() string {
-	if strings.Count(t.pTable, ".") == 1 {
-		if i := strings.IndexByte(t.pTable, '.'); i >= 0 {
-			return t.pPre + t.pTable[i+1:]
+	name := t.pTable
+	if strings.Count(name, ".") == 1 {
+		if i := strings.IndexByte(name, '.'); i >= 0 {
+			name = name[i+1:]
 		}
 	}
-	return t.pPre + t.pTable
+	// UseMaster 的 schema 限定：public.mi_regions。原表名自带点号的
+	// 旧写法已经把点前部分剥掉，两者不会叠加。
+	if t.schema != "" {
+		return t.schema + "." + t.pPre + name
+	}
+	return t.pPre + name
 }
 
 func (t *Table) LeftJoin(tbl string, onKey string, args ...any) *Table {
@@ -153,6 +220,15 @@ func (t *Table) pushConditions(w string) *Table {
 // statement itself, and Db.Ping()/Db.Conn() remain available for an explicit
 // health check.
 func (t *Table) check() error {
+	// UseMaster 的两条红线先裁决，避免落到"连接不可用"这类误导性错误上。
+	if t.useMaster {
+		if t.txBound {
+			return ErrInTransaction
+		}
+		if t.major == nil {
+			return ErrNoMaster
+		}
+	}
 	if t.dbConn == nil {
 		if t.db != nil {
 			return t.db.checkConn()
@@ -282,8 +358,15 @@ func (t *Table) context() context.Context {
 }
 
 // quoteTable quotes the (possibly prefixed) table name for the active protocol.
+//
+// schema 限定的名字必须按段分别加引号：把 "public.mi_regions" 整个包进
+// 一对引号就成了一个不存在的标识符，而不是 schema 加表名。
 func (t *Table) quoteTable() string {
-	return quoteIdentFor(t.protocol, t.table_prefix())
+	name := t.table_prefix()
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		return quoteIdentFor(t.protocol, name[:i]) + "." + quoteIdentFor(t.protocol, name[i+1:])
+	}
+	return quoteIdentFor(t.protocol, name)
 }
 
 // quoteIdent wraps a column name with the quoting used by the active protocol.

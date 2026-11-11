@@ -191,6 +191,28 @@ db.Table("users").
 - NUL bytes are never written into a literal: MySQL gets `\0`, PostgreSQL/SQLite drop them (a raw NUL would truncate a SQLite statement or be rejected by PostgreSQL).
 - `Limit`/`LimitOffset` emit `LIMIT .. OFFSET ..` on PostgreSQL/SQLite and MySQL's `LIMIT m,n` on MySQL.
 
+### One statement on the primary
+
+`Slaver()` binds a Db to a read replica, and the connection is fixed when the
+instance is created. When a single query must read fresh data, send it back to
+the primary without giving up the replica instance — optionally qualifying a
+schema (PostgreSQL) / database (MySQL), mirroring `T('regions')->UseMaster("public")`:
+
+```go
+db.Table("com_regions_2026").
+    UseMaster("public", sqlm.UseTablePrefix("mi_")).
+    Select("*").Where("id = %d", 1).Query()
+// SELECT * FROM public.mi_com_regions_2026 WHERE id = 1
+```
+
+- `UseMaster("")` only switches the connection; the table name is untouched.
+- `sqlm.UseTablePrefix(p)` overrides the table prefix for this statement only.
+- Inside a transaction it is refused (`sqlm.ErrInTransaction`): switching the
+  connection would let the statement escape the transaction.
+- Without a usable primary it fails with `sqlm.ErrNoMaster` — it never
+  silently falls back to the replica.
+- JOIN tables are not schema-qualified; pass qualified names explicitly.
+
 ### Observability hooks
 
 Every statement can be observed — tracing, slow query logs, metrics — without
